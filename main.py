@@ -16,7 +16,7 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging, get_logger
 from app.middleware.auth import AuthMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routers import health, gateway
+from app.routers import health, gateway, auth
 
 settings = get_settings()
 setup_logging()
@@ -57,6 +57,7 @@ app.add_middleware(
 # Routers
 app.include_router(health.router)
 app.include_router(gateway.router)
+app.include_router(auth.router)
 
 
 @app.get("/", include_in_schema=False)

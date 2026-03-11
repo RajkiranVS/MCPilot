@@ -27,12 +27,20 @@ def test_root_200():
     assert client.get("/").status_code == 200
 
 def test_gateway_tool_stub_501():
-    response = client.post("/gateway/tool", json={
-        "server_id": "test",
-        "tool_name": "echo",
-        "parameters": {"text": "hello"},
-    })
+    response = client.post(
+        "/gateway/tool",
+        json={
+            "server_id": "test",
+            "tool_name": "echo",
+            "parameters": {"text": "hello"},
+        },
+        headers={"X-API-Key": "mcpilot-dev-key-001"}
+    )
     assert response.status_code == 501
 
 def test_gateway_servers_empty():
-    assert client.get("/gateway/servers").json()["servers"] == []
+    response = client.get(
+        "/gateway/servers",
+        headers={"X-API-Key": "mcpilot-dev-key-001"}
+    )
+    assert response.json()["servers"] == []
