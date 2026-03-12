@@ -1,8 +1,8 @@
 """
 MCPilot — Gateway Router
-MCP tool call routing. Stub until BUILD-003.
+Real MCP tool call routing — BUILD-003 complete.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.core.logging import get_logger
 
@@ -11,28 +11,62 @@ logger = get_logger(__name__)
 
 
 class ToolCallRequest(BaseModel):
-    server_id: str
-    tool_name: str
+    server_id:  str
+    tool_name:  str
     parameters: dict
     session_id: str | None = None
 
 
 class ToolCallResponse(BaseModel):
-    status: str
+    status:    str
     server_id: str
     tool_name: str
-    result: dict | None = None
-    error: str | None = None
+    result:    dict | None = None
+    error:     str | None = None
 
 
 @router.post("/tool", response_model=ToolCallResponse, summary="Invoke MCP tool")
-async def invoke_tool(request: ToolCallRequest) -> ToolCallResponse:
-    logger.info(f"Tool call: server={request.server_id} tool={request.tool_name}")
-    # BUILD-003: MCP SDK routing goes here
-    raise HTTPException(status_code=501, detail="MCP routing coming in BUILD-003")
+async def invoke_tool(
+    payload: ToolCallRequest,
+    request: Request,
+) -> ToolCallResponse:
+    manager = request.app.state.mcp_manager
+
+    try:
+        result = await manager.call_tool(
+            server_id=payload.server_id,
+            tool_name=payload.tool_name,
+            parameters=payload.parameters,
+        )
+        logger.info(
+            f"Tool call OK | server={payload.server_id} "
+            f"tool={payload.tool_name} "
+            f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
+        )
+        return ToolCallResponse(
+            status="ok",
+            server_id=payload.server_id,
+            tool_name=payload.tool_name,
+            result=result,
+        )
+
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Tool call failed | {e}")
+        raise HTTPException(status_code=500, detail=f"Tool call failed: {e}")
 
 
 @router.get("/servers", summary="List registered MCP servers")
-async def list_servers() -> dict:
-    # BUILD-007: PostgreSQL tool registry goes here
-    return {"servers": [], "note": "Tool registry coming in BUILD-007"}
+async def list_servers(request: Request) -> dict:
+    manager = request.app.state.mcp_manager
+    return {"servers": manager.list_servers()}
+
+
+@router.get("/tools", summary="List all tools across all servers")
+async def list_tools(request: Request) -> dict:
+    manager = request.app.state.mcp_manager
+    tools = manager.get_all_tools()
+    return {"tools": tools, "total": len(tools)}

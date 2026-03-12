@@ -5,38 +5,36 @@ from main import app
 from app.core.security import create_access_token, decode_access_token
 from jose import JWTError
 
-client = TestClient(app, raise_server_exceptions=False)
+# Remove this line:
+# client = TestClient(app, raise_server_exceptions=False)
 
-# ── Public path tests ─────────────────────────────────────────────────────────
-def test_health_no_auth_required():
+
+def test_health_no_auth_required(client):
     assert client.get("/health").status_code == 200
 
-def test_docs_no_auth_required():
+def test_docs_no_auth_required(client):
     assert client.get("/docs").status_code == 200
 
-# ── Protected path — no credentials ──────────────────────────────────────────
-def test_gateway_no_credentials_returns_401():
+def test_gateway_no_credentials_returns_401(client):
     response = client.get("/gateway/servers")
     assert response.status_code == 401
     assert "detail" in response.json()
 
-# ── API key auth ──────────────────────────────────────────────────────────────
-def test_gateway_valid_api_key_passes():
+def test_gateway_valid_api_key_passes(client):
     response = client.get(
         "/gateway/servers",
         headers={"X-API-Key": "mcpilot-dev-key-001"}
     )
     assert response.status_code == 200
 
-def test_gateway_invalid_api_key_returns_401():
+def test_gateway_invalid_api_key_returns_401(client):
     response = client.get(
         "/gateway/servers",
         headers={"X-API-Key": "wrong-key"}
     )
     assert response.status_code == 401
 
-# ── JWT auth ──────────────────────────────────────────────────────────────────
-def test_gateway_valid_jwt_passes():
+def test_gateway_valid_jwt_passes(client):
     token = create_access_token(
         subject="test-client",
         tenant_id="test-tenant",
@@ -48,22 +46,21 @@ def test_gateway_valid_jwt_passes():
     )
     assert response.status_code == 200
 
-def test_gateway_invalid_jwt_returns_401():
+def test_gateway_invalid_jwt_returns_401(client):
     response = client.get(
         "/gateway/servers",
         headers={"Authorization": "Bearer not-a-real-token"}
     )
     assert response.status_code == 401
 
-def test_gateway_malformed_bearer_returns_401():
+def test_gateway_malformed_bearer_returns_401(client):
     response = client.get(
         "/gateway/servers",
         headers={"Authorization": "NotBearer sometoken"}
     )
     assert response.status_code == 401
 
-# ── Token issuance endpoint ───────────────────────────────────────────────────
-def test_token_endpoint_valid_key():
+def test_token_endpoint_valid_key(client):
     response = client.post(
         "/auth/token",
         headers={"X-API-Key": "mcpilot-dev-key-001"}
@@ -73,15 +70,14 @@ def test_token_endpoint_valid_key():
     assert "access_token" in data
     assert data["token_type"] == "bearer"
 
-def test_token_endpoint_invalid_key():
+def test_token_endpoint_invalid_key(client):
     response = client.post(
         "/auth/token",
         headers={"X-API-Key": "bad-key"}
     )
     assert response.status_code == 401
 
-# ── JWT utility unit tests ────────────────────────────────────────────────────
-def test_create_and_decode_token():
+def test_create_and_decode_token(client):
     token = create_access_token(
         subject="client-123",
         tenant_id="tenant-abc",
@@ -92,6 +88,6 @@ def test_create_and_decode_token():
     assert payload.tenant_id == "tenant-abc"
     assert "gateway:invoke" in payload.scopes
 
-def test_decode_garbage_token_raises():
+def test_decode_garbage_token_raises(client):
     with pytest.raises(JWTError):
         decode_access_token("garbage.token.value")
