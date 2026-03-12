@@ -17,22 +17,37 @@ from app.core.logging import setup_logging, get_logger
 from app.middleware.auth import AuthMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
 from app.routers import health, gateway, auth
+from app.mcp import mcp_manager, registry, MCPServerConfig, TransportType
 
 settings = get_settings()
 setup_logging()
 logger = get_logger(__name__)
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
-    logger.info(f"Environment  : {settings.environment}")
-    logger.info("MCP gateway initialising...")
-    # TODO Week 2: init ChromaDB + LlamaIndex
-    # TODO Week 3: warm SageMaker PHI endpoint
-    logger.info(f"{settings.app_name} ready ✓")
+    logger.info(f"Environment: {settings.environment}")
+
+    if settings.environment != "test":
+        registry.register(MCPServerConfig(
+            server_id="filesystem",
+            name="MCP Filesystem Server",
+            transport=TransportType.STDIO,
+            command=["python", "-m", "mcp.server.filesystem", "."],
+        ))
+        logger.info("Connecting to MCP servers...")
+        await mcp_manager.connect_all()
+        connected = [s for s in mcp_manager.list_servers() if s["connected"]]
+        logger.info(f"MCP servers connected: {len(connected)}")
+
+    app.state.mcp_manager = mcp_manager
     yield
-    logger.info(f"{settings.app_name} shutting down...")
+
+    if settings.environment != "test":
+        logger.info("Disconnecting MCP servers...")
+        await mcp_manager.disconnect_all()
+
+    logger.info(f"{settings.app_name} shutdown complete")
 
 
 app = FastAPI(
