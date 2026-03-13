@@ -11,6 +11,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler
+from app.middleware.error_handler import (
+    http_exception_handler,
+    validation_exception_handler,
+    unhandled_exception_handler,
+)
 
 from app.core.config import get_settings
 from app.core.logging import setup_logging, get_logger
@@ -59,7 +71,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Middleware — order matters, outermost runs first
+# ── Rate limiter state ────────────────────────────────────────────────────────
+app.state.limiter = limiter
+
+# ── Middleware (order matters — outermost runs first) ─────────────────────────
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
@@ -69,7 +85,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
+# ── Exception handlers ────────────────────────────────────────────────────────
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler) # type: ignore
+app.add_exception_handler(StarletteHTTPException, http_exception_handler) # type: ignore
+app.add_exception_handler(RequestValidationError, validation_exception_handler) # type: ignore
+app.add_exception_handler(Exception, unhandled_exception_handler)
+
+# ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(gateway.router)
 app.include_router(auth.router)

@@ -1,10 +1,7 @@
-"""
-MCPilot — Gateway Router
-Real MCP tool call routing — BUILD-003 complete.
-"""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.core.logging import get_logger
+from app.middleware.rate_limit import limiter
 
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
 logger = get_logger(__name__)
@@ -26,12 +23,12 @@ class ToolCallResponse(BaseModel):
 
 
 @router.post("/tool", response_model=ToolCallResponse, summary="Invoke MCP tool")
+@limiter.limit("30/minute")   # stricter limit on tool calls specifically
 async def invoke_tool(
     payload: ToolCallRequest,
     request: Request,
 ) -> ToolCallResponse:
     manager = request.app.state.mcp_manager
-
     try:
         result = await manager.call_tool(
             server_id=payload.server_id,
@@ -49,7 +46,6 @@ async def invoke_tool(
             tool_name=payload.tool_name,
             result=result,
         )
-
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
