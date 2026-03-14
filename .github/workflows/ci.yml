@@ -44,3 +44,17 @@ jobs:
       - name: Verify app imports cleanly
         run: |
           python -c "from main import app; print('✓ App imports OK')"
+      - name: Run unit tests
+        env:
+          ENVIRONMENT: test
+          SECRET_KEY: ci-test-secret-key
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/mcpilot
+        run: |
+          pytest tests/unit/ -v --tb=short
+
+      - name: Run integration tests
+        env:
+          ENVIRONMENT: test
+          SECRET_KEY: ci-test-secret-key
+        run: |
+          pytest tests/integration/ -v --tb=short

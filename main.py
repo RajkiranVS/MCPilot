@@ -41,12 +41,22 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.environment}")
 
     if settings.environment != "test":
+        # ── Filesystem MCP server ─────────────────────────────────────────
         registry.register(MCPServerConfig(
             server_id="filesystem",
             name="MCP Filesystem Server",
             transport=TransportType.STDIO,
-            command=["python", "-m", "mcp.server.filesystem", "."],
+            command=["uvx", "mcp-server-filesystem", "."],
         ))
+
+        # ── Fetch MCP server ──────────────────────────────────────────────
+        registry.register(MCPServerConfig(
+            server_id="fetch",
+            name="MCP Fetch Server",
+            transport=TransportType.STDIO,
+            command=["uvx", "mcp-server-fetch"],
+        ))
+
         logger.info("Connecting to MCP servers...")
         await mcp_manager.connect_all()
         connected = [s for s in mcp_manager.list_servers() if s["connected"]]
@@ -60,7 +70,6 @@ async def lifespan(app: FastAPI):
         await mcp_manager.disconnect_all()
 
     logger.info(f"{settings.app_name} shutdown complete")
-
 
 app = FastAPI(
     title=settings.app_name,
