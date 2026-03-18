@@ -30,6 +30,7 @@ from app.middleware.auth import AuthMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
 from app.routers import health, gateway, auth
 from app.mcp import mcp_manager, registry, MCPServerConfig, TransportType
+from app.rag import tool_indexer
 
 settings = get_settings()
 setup_logging()
@@ -62,7 +63,17 @@ async def lifespan(app: FastAPI):
         connected = [s for s in mcp_manager.list_servers() if s["connected"]]
         logger.info(f"MCP servers connected: {len(connected)}")
 
+        # ── Build RAG tool index ──────────────────────────────────────────
+        all_tools = mcp_manager.get_all_tools()
+        if all_tools:
+            logger.info(f"Building RAG index for {len(all_tools)} tools...")
+            tool_indexer.build(all_tools)
+            logger.info("RAG index ready ✓")
+        else:
+            logger.warning("No tools discovered — RAG index skipped")
+
     app.state.mcp_manager = mcp_manager
+    app.state.tool_indexer = tool_indexer
     yield
 
     if settings.environment != "test":

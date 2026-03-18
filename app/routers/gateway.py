@@ -66,3 +66,21 @@ async def list_tools(request: Request) -> dict:
     manager = request.app.state.mcp_manager
     tools = manager.get_all_tools()
     return {"tools": tools, "total": len(tools)}
+
+@router.get("/tools/search", summary="Semantic tool search")
+async def search_tools(
+    intent: str,
+    top_k: int = 3,
+    request: Request = None,
+) -> dict:
+    """
+    Semantic search over all registered MCP tools.
+    Returns ranked tool matches for a natural language intent.
+    """
+    from app.rag.retriever import retrieve_tools
+    results = retrieve_tools(intent, top_k=top_k)
+    return {
+        "intent": intent,
+        "results": results,
+        "total": len(results),
+    }
