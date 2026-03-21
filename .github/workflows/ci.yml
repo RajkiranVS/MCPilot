@@ -29,9 +29,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install fastapi uvicorn pydantic pydantic-settings \
-                      python-jose passlib httpx pytest pytest-asyncio \
-                      python-dotenv slowapi mcp
+          pip install --upgrade pip
+          pip install -r requirements-ci.txt
 
       - name: Run unit tests
         env:
