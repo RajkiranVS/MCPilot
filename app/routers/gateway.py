@@ -1,51 +1,108 @@
+"""
+MCPilot — Gateway Router
+BUILD-006: Semantic routing integrated.
+Supports explicit, semantic, and hybrid routing modes.
+"""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.core.logging import get_logger
 from app.middleware.rate_limit import limiter
+from app.rag.router import resolve_route, RoutingMode
 
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
 logger = get_logger(__name__)
 
 
 class ToolCallRequest(BaseModel):
-    server_id:  str
-    tool_name:  str
-    parameters: dict
+    server_id:  str | None = None
+    tool_name:  str | None = None
+    parameters: dict        = {}
+    intent:     str | None = None
     session_id: str | None = None
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "title": "Explicit routing",
+                    "value": {
+                        "server_id": "filesystem",
+                        "tool_name": "read_file",
+                        "parameters": {"path": "./README.md"},
+                    }
+                },
+                {
+                    "title": "Semantic routing",
+                    "value": {
+                        "intent": "read a file from disk",
+                        "parameters": {"path": "./README.md"},
+                    }
+                },
+                {
+                    "title": "Hybrid routing",
+                    "value": {
+                        "server_id": "filesystem",
+                        "intent": "read a file",
+                        "parameters": {"path": "./README.md"},
+                    }
+                },
+            ]
+        }
+    }
 
 class ToolCallResponse(BaseModel):
-    status:    str
-    server_id: str
-    tool_name: str
-    result:    dict | None = None
-    error:     str | None = None
+    status:       str
+    server_id:    str
+    tool_name:    str
+    routing_mode: str          # explicit | semantic | hybrid
+    confidence:   float        # 1.0 for explicit, 0.0–1.0 for semantic
+    result:       dict | None = None
+    error:        str | None  = None
+    alternatives: list[dict]  = []  # other candidate tools from RAG
 
 
 @router.post("/tool", response_model=ToolCallResponse, summary="Invoke MCP tool")
-@limiter.limit("30/minute")   # stricter limit on tool calls specifically
+@limiter.limit("30/minute")
 async def invoke_tool(
     payload: ToolCallRequest,
     request: Request,
 ) -> ToolCallResponse:
     manager = request.app.state.mcp_manager
+
+    # ── Resolve route ─────────────────────────────────────────────────────────
     try:
-        result = await manager.call_tool(
+        route = resolve_route(
+            intent=payload.intent,
             server_id=payload.server_id,
             tool_name=payload.tool_name,
-            parameters=payload.parameters,
         )
-        logger.info(
-            f"Tool call OK | server={payload.server_id} "
-            f"tool={payload.tool_name} "
-            f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(
+        f"Routing resolved | mode={route.mode} "
+        f"server={route.server_id} tool={route.tool_name} "
+        f"confidence={route.confidence} "
+        f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
+    )
+
+    # ── Execute tool call ─────────────────────────────────────────────────────
+    try:
+        result = await manager.call_tool(
+            server_id=route.server_id,
+            tool_name=route.tool_name,
+            parameters=payload.parameters,
         )
         return ToolCallResponse(
             status="ok",
-            server_id=payload.server_id,
-            tool_name=payload.tool_name,
+            server_id=route.server_id,
+            tool_name=route.tool_name,
+            routing_mode=route.mode,
+            confidence=route.confidence,
             result=result,
+            alternatives=route.alternatives,
         )
+
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -67,20 +124,17 @@ async def list_tools(request: Request) -> dict:
     tools = manager.get_all_tools()
     return {"tools": tools, "total": len(tools)}
 
+
 @router.get("/tools/search", summary="Semantic tool search")
 async def search_tools(
     intent: str,
     top_k: int = 3,
     request: Request = None,
 ) -> dict:
-    """
-    Semantic search over all registered MCP tools.
-    Returns ranked tool matches for a natural language intent.
-    """
     from app.rag.retriever import retrieve_tools
     results = retrieve_tools(intent, top_k=top_k)
     return {
-        "intent": intent,
+        "intent":  intent,
         "results": results,
-        "total": len(results),
+        "total":   len(results),
     }

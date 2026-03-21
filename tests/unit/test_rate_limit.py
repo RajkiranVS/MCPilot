@@ -6,10 +6,10 @@ from fastapi.testclient import TestClient
 
 
 def test_validation_error_returns_422(client):
-    """Missing required fields should return structured 422."""
+    """Completely malformed body returns structured 422."""
     response = client.post(
         "/gateway/tool",
-        json={"server_id": "test"},   # missing tool_name and parameters
+        json={"parameters": "not-a-dict"},  # parameters must be a dict
         headers={"X-API-Key": "mcpilot-dev-key-001"},
     )
     assert response.status_code == 422
