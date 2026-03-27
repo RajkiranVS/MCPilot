@@ -3,6 +3,7 @@ MCPilot — Gateway Router
 BUILD-006: Semantic routing integrated.
 Supports explicit, semantic, and hybrid routing modes.
 """
+from app.compliance.pipeline import scan_input, scan_output
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.core.logging import get_logger
@@ -86,23 +87,22 @@ async def invoke_tool(
         f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
     )
 
-    # ── Execute tool call ─────────────────────────────────────────────────────
+    # ── Scan input parameters for PHI ─────────────────────────────────────────
+    input_scan = scan_input(payload.parameters)
+    if input_scan.phi_detected:
+        logger.warning(
+            f"PHI in input | server={route.server_id} "
+            f"tool={route.tool_name} "
+            f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
+        )
+
+    # ── Execute tool call with redacted parameters ────────────────────────────
     try:
         result = await manager.call_tool(
             server_id=route.server_id,
             tool_name=route.tool_name,
-            parameters=payload.parameters,
+            parameters=input_scan.redacted,  # use redacted params
         )
-        return ToolCallResponse(
-            status="ok",
-            server_id=route.server_id,
-            tool_name=route.tool_name,
-            routing_mode=route.mode,
-            confidence=route.confidence,
-            result=result,
-            alternatives=route.alternatives,
-        )
-
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -110,6 +110,31 @@ async def invoke_tool(
     except Exception as e:
         logger.error(f"Tool call failed | {e}")
         raise HTTPException(status_code=500, detail=f"Tool call failed: {e}")
+
+    # ── Scan output for PHI ───────────────────────────────────────────────────
+    output_scan = scan_output(result)
+    if output_scan.phi_detected:
+        logger.warning(
+            f"PHI in output | server={route.server_id} "
+            f"tool={route.tool_name} "
+            f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
+        )
+
+    logger.info(
+        f"Tool call OK | server={route.server_id} tool={route.tool_name} "
+        f"phi_input={input_scan.phi_detected} "
+        f"phi_output={output_scan.phi_detected}"
+    )
+
+    return ToolCallResponse(
+        status="ok",
+        server_id=route.server_id,
+        tool_name=route.tool_name,
+        routing_mode=route.mode,
+        confidence=route.confidence,
+        result=output_scan.redacted,   # return redacted output
+        alternatives=route.alternatives,
+    )
 
 
 @router.get("/servers", summary="List registered MCP servers")
