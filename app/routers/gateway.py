@@ -10,6 +10,7 @@ from app.core.logging import get_logger
 from app.middleware.rate_limit import limiter
 from app.rag.router import resolve_route, RoutingMode
 from app.core.config import get_settings
+from app.compliance.audit import write_audit_record
 
 settings = get_settings()
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
@@ -128,13 +129,40 @@ async def invoke_tool(
         f"phi_output={output_scan.phi_detected}"
     )
 
+    # ── Scan output for PII ───────────────────────────────────────────────────
+    output_scan = scan_output(result)
+
+    # ── Write audit record ────────────────────────────────────────────────────
+    import time
+    await write_audit_record(
+        tenant_id=getattr(request.state, "tenant_id", "unknown"),
+        client_id=getattr(request.state, "client_id", "unknown"),
+        server_id=route.server_id,
+        tool_name=route.tool_name,
+        routing_mode=str(route.mode),
+        session_id=payload.session_id,
+        pii_in_input=input_scan.phi_detected,
+        pii_in_output=output_scan.phi_detected,
+        redacted_count=input_scan.redacted_count + output_scan.redacted_count,
+        status="ok",
+        latency_ms=float(
+            request.headers.get("x-response-time-ms", 0) or 0
+        ),
+    )
+
+    logger.info(
+        f"Tool call OK | server={route.server_id} tool={route.tool_name} "
+        f"pii_input={input_scan.phi_detected} "
+        f"pii_output={output_scan.phi_detected}"
+    )
+
     return ToolCallResponse(
         status="ok",
         server_id=route.server_id,
         tool_name=route.tool_name,
         routing_mode=route.mode,
         confidence=route.confidence,
-        result=output_scan.redacted,   # return redacted output
+        result=output_scan.redacted,
         alternatives=route.alternatives,
     )
 
@@ -197,3 +225,47 @@ async def natural_language_query(request: Request) -> dict:
         "llm_provider": "ollama (on-premise)",
         "model":        settings.ollama_model,
     }
+
+@router.get("/audit", summary="Recent audit log entries")
+async def get_audit_log(
+    limit: int = 20,
+    request: Request = None,
+) -> dict:
+    """Returns recent audit log entries for the dashboard."""
+    from app.db.base import get_session_factory
+    from app.db.repository import AuditLogRepository
+
+    tenant_id = getattr(request.state, "tenant_id", None)
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = AuditLogRepository(session)
+        records = await repo.list_recent(tenant_id=tenant_id, limit=limit)
+        return {
+            "records": [
+                {
+                    "id":           r.id,
+                    "tenant_id":    r.tenant_id,
+                    "server_id":    r.server_id,
+                    "tool_name":    r.tool_name,
+                    "pii_detected": r.pii_in_input or r.pii_in_output,
+                    "status":       r.status,
+                    "latency_ms":   r.latency_ms,
+                    "created_at":   r.created_at.isoformat(),
+                    "record_hash":  r.record_hash[:16] + "...",
+                }
+                for r in records
+            ],
+            "total": len(records),
+        }
+
+
+@router.get("/audit/verify", summary="Verify audit log hash chain integrity")
+async def verify_audit_chain() -> dict:
+    """Verifies the tamper-proof hash chain of the audit log."""
+    from app.db.base import get_session_factory
+    from app.db.repository import AuditLogRepository
+
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = AuditLogRepository(session)
+        return await repo.verify_chain()

@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.db.models import MCPServer, MCPTool, HealthEvent
 from app.core.logging import get_logger
+import hashlib
+from app.db.models import MCPServer, MCPTool, HealthEvent, AuditLog
 
 logger = get_logger(__name__)
 
@@ -183,3 +185,127 @@ class ToolRegistryRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+class AuditLogRepository:
+    """
+    Append-only audit log writer.
+    Every write computes a SHA-256 hash chain for tamper detection.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    def _compute_hash(self, record: AuditLog) -> str:
+        """
+        Compute SHA-256 hash of record content.
+        Uses id + business fields — avoids timestamp precision issues.
+        """
+        content = (
+            f"{record.id}|"
+            f"{record.tenant_id}|{record.client_id}|"
+            f"{record.server_id}|{record.tool_name}|"
+            f"{record.pii_in_input}|{record.pii_in_output}|"
+            f"{record.redacted_count}|{record.status}|"
+            f"{record.prev_hash}"
+        )
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    async def write(
+        self,
+        tenant_id:      str,
+        client_id:      str,
+        server_id:      str,
+        tool_name:      str,
+        routing_mode:   str   = "explicit",
+        session_id:     str   | None = None,
+        pii_in_input:   bool  = False,
+        pii_in_output:  bool  = False,
+        redacted_count: int   = 0,
+        status:         str   = "ok",
+        latency_ms:     float | None = None,
+        error_message:  str   | None = None,
+    ) -> AuditLog:
+        """
+        Write one immutable audit record.
+        Automatically chains to the previous record's hash.
+        """
+        # Get the hash of the most recent record for chaining
+        result = await self._session.execute(
+            select(AuditLog)
+            .order_by(AuditLog.created_at.desc())
+            .limit(1)
+        )
+        last = result.scalar_one_or_none()
+        prev_hash = last.record_hash if last else "GENESIS"
+
+        record = AuditLog(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            server_id=server_id,
+            tool_name=tool_name,
+            routing_mode=routing_mode,
+            session_id=session_id,
+            pii_in_input=pii_in_input,
+            pii_in_output=pii_in_output,
+            redacted_count=redacted_count,
+            status=status,
+            latency_ms=latency_ms,
+            error_message=error_message,
+            prev_hash=prev_hash,
+            record_hash="pending",  # computed after ID is set
+        )
+        self._session.add(record)
+        await self._session.flush()  # gets the ID assigned
+
+        # Now compute hash with all fields populated
+        record.record_hash = self._compute_hash(record)
+        await self._session.flush()
+
+        logger.info(
+            f"Audit record written | tenant={tenant_id} "
+            f"server={server_id} tool={tool_name} "
+            f"pii={pii_in_input or pii_in_output} "
+            f"status={status}"
+        )
+        return record
+
+    async def list_recent(
+        self,
+        tenant_id: str | None = None,
+        limit:     int = 50,
+    ) -> list[AuditLog]:
+        """List recent audit records, optionally filtered by tenant."""
+        query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+        if tenant_id:
+            query = query.where(AuditLog.tenant_id == tenant_id)
+        result = await self._session.execute(query)
+        return list(result.scalars().all())
+
+    async def verify_chain(self, limit: int = 100) -> dict:
+        """
+        Verify the hash chain integrity.
+        Returns dict with is_valid bool and any broken links found.
+        """
+        result = await self._session.execute(
+            select(AuditLog)
+            .order_by(AuditLog.created_at.asc())
+            .limit(limit)
+        )
+        records = list(result.scalars().all())
+
+        broken = []
+        for i, record in enumerate(records):
+            expected_hash = self._compute_hash(record)
+            if record.record_hash != expected_hash:
+                broken.append({
+                    "id":       record.id,
+                    "position": i,
+                    "expected": expected_hash,
+                    "actual":   record.record_hash,
+                })
+
+        return {
+            "is_valid":      len(broken) == 0,
+            "records_checked": len(records),
+            "broken_links":  broken,
+        }

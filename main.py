@@ -35,6 +35,7 @@ from app.middleware.logging import RequestLoggingMiddleware
 from app.routers import health, gateway, auth
 from app.mcp import mcp_manager, registry, MCPServerConfig, TransportType
 from app.rag import tool_indexer
+from app.db.base import init_db
 
 settings = get_settings()
 setup_logging()
@@ -47,6 +48,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.environment}")
 
     if settings.environment != "test":
+        init_db()
+        logger.info("Database initialised ✓")
         # ── Register MCP servers ──────────────────────────────────────────────
         # Echo server — reliable on Windows, used for demo + testing
         registry.register(MCPServerConfig(
