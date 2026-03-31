@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     aws_sagemaker_phi_endpoint: str = ""
     aws_bedrock_model_id: str = "anthropic.claude-sonnet-4-20250514-v1:0"
 
+    # ── LLM Provider ──────────────────────────────────────────────────────────
+    llm_provider:  str = "ollama"
+    ollama_url:    str = "http://localhost:11434"
+    ollama_model:  str = "llama3.2"
+
     # Rate limiting (BUILD-004)
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
