@@ -114,7 +114,7 @@
     <!-- LLM Response -->
     <div class="panel">
       <div class="panel-title">◈ On-Premise LLM Analysis</div>
-      <div class="provider-badge">MODEL: llama3.1:8b &nbsp;·&nbsp; PROVIDER: OLLAMA LOCAL &nbsp;·&nbsp; ON-PREMISE · NO DATA LEAVES FACILITY</div>
+      <div class="provider-badge">MODEL: llama3.2 &nbsp;·&nbsp; PROVIDER: OLLAMA LOCAL &nbsp;·&nbsp; ON-PREMISE · NO DATA LEAVES FACILITY</div>
       <div class="llm-box" id="llmBox">Awaiting transmission...</div>
 
       <div style="margin-top:16px">
@@ -196,20 +196,25 @@
         });
         const data = await res.json();
         const feed = document.getElementById('logFeed');
-        feed.innerHTML = '';
+        // Remove previously fetched DB records (marked with data-db="true")
+        feed.querySelectorAll('[data-db="true"]').forEach(el => el.remove());
+        // Prepend fresh DB records above static init logs
+        const fragment = document.createDocumentFragment();
         data.records.forEach(r => {
-            const el = document.createElement('div');
-            el.className = 'log-entry';
-            const piiTag = r.pii_detected
-                ? '<div class="log-tag tag-PII">PII</div>'
-                : '<div class="log-tag tag-ok">OK</div>';
-            el.innerHTML = `
-                <div class="log-time">${r.created_at.slice(11,19)}</div>
-                <div class="log-msg">${r.server_id}.${r.tool_name} | ${r.tenant_id} | hash:${r.record_hash}</div>
-                ${piiTag}
-            `;
-            feed.appendChild(el);
-        });
+        const el = document.createElement('div');
+        el.className = 'log-entry';
+        el.setAttribute('data-db', 'true');
+        const piiTag = r.pii_detected
+            ? '<div class="log-tag tag-PII">PII</div>'
+            : '<div class="log-tag tag-ok">OK</div>';
+        el.innerHTML = `
+            <div class="log-time">${new Date(r.created_at).toLocaleTimeString('en-GB')}</div>
+            <div class="log-msg">${r.server_id}.${r.tool_name} | ${r.tenant_id} | hash:${r.record_hash}</div>
+            ${piiTag}
+        `;
+        fragment.appendChild(el);
+    });
+    feed.insertBefore(fragment, feed.firstChild);
     } catch(e) {
         // silently fail — gateway may not be running
     }
@@ -273,6 +278,7 @@
         addLog(`Query processed clean | latency ${ms}ms`, 'OK', 'tag-ok');
       }
       addLog('Audit record written to immutable log', 'AUDIT', 'tag-info');
+      setTimeout(fetchAuditLog, 500);
 
     } catch (e) {
       document.getElementById('redactedBox').textContent = 'Gateway unreachable';
@@ -293,6 +299,8 @@
   addLog('RAG index loaded — semantic routing active', 'RAG', 'tag-ok');
   addLog('Ollama LLM online — llama3.1:8b on-premise model ready', 'LLM', 'tag-ok');
   addLog('PII detection pipeline active — spaCy NER loaded', 'PII', 'tag-ok');
+  fetchAuditLog();                          // load real records on page open
+  setInterval(fetchAuditLog, 10000);        // refresh every 10 seconds
 </script>
 </body>
 </html>
