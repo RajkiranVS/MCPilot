@@ -189,6 +189,32 @@
     while (feed.children.length > 30) feed.removeChild(feed.lastChild);
   }
 
+  async function fetchAuditLog() {
+    try {
+        const res = await fetch(`${API_BASE}/gateway/audit?limit=10`, {
+            headers: { 'X-API-Key': API_KEY }
+        });
+        const data = await res.json();
+        const feed = document.getElementById('logFeed');
+        feed.innerHTML = '';
+        data.records.forEach(r => {
+            const el = document.createElement('div');
+            el.className = 'log-entry';
+            const piiTag = r.pii_detected
+                ? '<div class="log-tag tag-PII">PII</div>'
+                : '<div class="log-tag tag-ok">OK</div>';
+            el.innerHTML = `
+                <div class="log-time">${r.created_at.slice(11,19)}</div>
+                <div class="log-msg">${r.server_id}.${r.tool_name} | ${r.tenant_id} | hash:${r.record_hash}</div>
+                ${piiTag}
+            `;
+            feed.appendChild(el);
+        });
+    } catch(e) {
+        // silently fail — gateway may not be running
+    }
+}
+
   function highlightPII(text) {
     return text
       .replace(/\[PERSON\]/g,    '<span class="PII-tag">[PERSON]</span>')

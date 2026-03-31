@@ -129,9 +129,6 @@ async def invoke_tool(
         f"phi_output={output_scan.phi_detected}"
     )
 
-    # ── Scan output for PII ───────────────────────────────────────────────────
-    output_scan = scan_output(result)
-
     # ── Write audit record ────────────────────────────────────────────────────
     import time
     await write_audit_record(
