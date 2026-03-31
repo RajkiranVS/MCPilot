@@ -25,41 +25,65 @@ class ComplianceResult:
     redacted_count: int
     direction:      str   # "input" or "output"
 
-
 def scan_input(parameters: dict) -> ComplianceResult:
     """
-    Scan tool call parameters for PHI before dispatching to MCP server.
-    Returns redacted parameters safe to pass downstream.
-
-    Args:
-        parameters: Tool call input dict
-
-    Returns:
-        ComplianceResult with redacted parameters and detection metadata
+    Sync PII scan using spaCy — used by gateway tool calls and tests.
+    For the /gateway/query demo endpoint use scan_input_async (LLM-based).
     """
     if not parameters:
         return ComplianceResult(
-            original={},
-            redacted={},
-            phi_detected=False,
-            entity_count=0,
-            redacted_count=0,
-            direction="input",
+            original={}, redacted={}, phi_detected=False,
+            entity_count=0, redacted_count=0, direction="input",
         )
 
-    redacted, phi_found = phi_client.scan_dict(parameters)
+    redacted, any_pii = phi_client.scan_dict(parameters)
 
-    if phi_found:
+    if any_pii:
         logger.warning(
-            "PHI detected in tool call input — parameters redacted before dispatch"
+            "PII detected in tool call input — parameters redacted before dispatch"
         )
 
     return ComplianceResult(
         original=parameters,
         redacted=redacted,
-        phi_detected=phi_found,
+        phi_detected=any_pii,
         entity_count=_count_entities(parameters),
         redacted_count=_count_redacted(parameters, redacted),
+        direction="input",
+    )
+
+
+async def scan_input_async(parameters: dict) -> ComplianceResult:
+    """
+    Async version of scan_input — uses LLM-based PHI detection.
+    Catches badge numbers, military IDs, rank+name combinations.
+    """
+    from app.compliance.phi_detector import detect_with_llm
+
+    if not parameters:
+        return ComplianceResult(
+            original={}, redacted={}, phi_detected=False,
+            entity_count=0, redacted_count=0, direction="input",
+        )
+
+    redacted = {}
+    any_phi = False
+
+    for key, value in parameters.items():
+        if isinstance(value, str):
+            result = await detect_with_llm(value)
+            redacted[key] = result.redacted_text
+            if result.phi_detected:
+                any_phi = True
+        else:
+            redacted[key] = value
+
+    return ComplianceResult(
+        original=parameters,
+        redacted=redacted,
+        phi_detected=any_phi,
+        entity_count=0,
+        redacted_count=0,
         direction="input",
     )
 

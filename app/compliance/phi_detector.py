@@ -11,6 +11,7 @@ Redaction format: [PERSON], [SSN], [MRN], [DOB], [PHONE], [EMAIL]
 Week 3: scan() and redact() will call AWS SageMaker endpoint
 instead of local spaCy model when ENVIRONMENT=production.
 """
+import json
 from dataclasses import dataclass
 from app.compliance.phi_model import get_phi_model
 from app.compliance.patterns import REDACT_LABELS, PHI_LABELS
@@ -163,3 +164,89 @@ def scan_list(data: list) -> tuple[list, bool]:
             redacted.append(item)
 
     return redacted, any_phi
+
+async def detect_with_llm(text: str) -> DetectionResult:
+    """
+    LLM-based PHI detection using local Ollama.
+    Catches contextual PHI that regex/NER misses —
+    badge numbers, military IDs, rank+name combinations.
+    Falls back to spaCy-only if Ollama unavailable.
+    """
+    from app.core.llm import complete
+    import re
+
+    prompt = (
+        f'You are a PII redaction system for defence communications.\n\n'
+        f'Text: "{text}"\n\n'
+        f'Identify ALL sensitive personal identifiers. Return ONLY a JSON array:\n'
+        f'[{{"text": "exact substring to redact", "label": "LABEL"}}]\n\n'
+        f'Detection rules:\n'
+        f'- Military rank + name together as ONE entity (Major Gaurav, Colonel Singh, Captain Sharma) → label: RANK_NAME. ALWAYS include the rank word with the name.\n'
+        f'- Full name without rank (John Smith) → label: PERSON\n'
+        f'- Any ID or badge number in ANY format (123-45-67-890, 12-123-434, B-12345) → label: BADGE\n'
+        f'- Phone numbers → label: PHONE\n'
+        f'- Email addresses → label: EMAIL\n'
+        f'- SSN (XXX-XX-XXXX format only) → label: SSN\n'
+        f'- CRITICAL: Never split a rank+name — "Major Gaurav" is ONE entity, not two\n'
+        f'- Choose ONE label per entity — never combine with pipe or slash\n'
+        f'- Return [] if no PII found\n'
+        f'- Return ONLY valid JSON array, no explanation'
+    )
+
+    try:
+        response = await complete(prompt=prompt, system="You are a PII detection API. Return only valid JSON.", max_tokens=100)
+        # Extract JSON from response
+        match = re.search(r'\[.*?\]', response, re.DOTALL)
+        if not match:
+            return detect(text)  # fall back to spaCy
+
+        entities_raw = json.loads(match.group())
+
+        if not entities_raw:
+            return detect(text)
+
+        # Build redacted text from LLM findings
+        redacted = text
+        entities = []
+        # Sort by position found in text, replace from end to start
+        positioned = []
+        for e in entities_raw:
+            idx = redacted.find(e["text"])
+            if idx >= 0:
+                positioned.append((idx, idx + len(e["text"]), e["text"], e["label"]))
+
+        # Deduplicate — if two entities overlap, keep the longer one
+        positioned.sort(key=lambda x: x[0])
+        deduped = []
+        for item in positioned:
+            if deduped and item[0] < deduped[-1][1]:
+                # Overlapping — keep whichever is longer
+                if (item[1] - item[0]) > (deduped[-1][1] - deduped[-1][0]):
+                    deduped[-1] = item
+            else:
+                deduped.append(item)
+
+        deduped.sort(key=lambda x: x[0], reverse=True)
+        for start, end, orig_text, label in deduped:
+            redacted = redacted[:start] + f"[{label}]" + redacted[end:]
+            entities.append(PHIEntity(
+                text=orig_text,
+                label=label,
+                start=start,
+                end=end,
+                redact=True,
+                label_name=label,
+            ))
+
+        return DetectionResult(
+            original_text=text,
+            entities=entities,
+            phi_detected=len(entities) > 0,
+            redacted_text=redacted,
+            entity_count=len(entities),
+            redacted_count=len(entities),
+        )
+
+    except Exception as e:
+        logger.warning(f"LLM PHI detection failed, falling back to spaCy: {e}")
+        return detect(text)  # always fall back gracefully

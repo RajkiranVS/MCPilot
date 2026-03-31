@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from app.core.logging import get_logger
 from app.middleware.rate_limit import limiter
 from app.rag.router import resolve_route, RoutingMode
+from app.core.config import get_settings
 
+settings = get_settings()
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
 logger = get_logger(__name__)
 
@@ -162,4 +164,36 @@ async def search_tools(
         "intent":  intent,
         "results": results,
         "total":   len(results),
+    }
+
+@router.post("/query", summary="Natural language query with local LLM")
+async def natural_language_query(request: Request) -> dict:
+    from app.core.llm import complete
+    from app.compliance.pipeline import scan_input_async
+
+    body = await request.json()
+    query = body.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query field required")
+
+    # Run PII scan and LLM summary in parallel
+    pii_task     = scan_input_async({"query": query})
+    summary_task = complete(
+        prompt=f"In one sentence, what is this request asking for: '{query}'",
+        system="You are a helpful assistant that summarises requests concisely.",
+        max_tokens=80,
+    )
+
+    # Wait for both simultaneously
+    import asyncio
+    input_scan, summary = await asyncio.gather(pii_task, summary_task)
+    clean_query = input_scan.redacted.get("query", query)
+
+    return {
+        "query":        query,
+        "phi_detected": input_scan.phi_detected,
+        "clean_query":  clean_query,
+        "llm_summary":  summary,
+        "llm_provider": "ollama (on-premise)",
+        "model":        settings.ollama_model,
     }

@@ -104,6 +104,14 @@ class PHIClient:
             entity_count=result["entity_count"],
             redacted_count=result["redacted_count"],
         )
+    
+    async def detect_async(self, text: str) -> DetectionResult:
+        """
+        Async PHI detection — uses LLM for contextual detection.
+        Use this for gateway requests where Ollama is available.
+        """
+        from app.compliance.phi_detector import detect_with_llm
+        return await detect_with_llm(text)
 
 
 # Module-level singleton

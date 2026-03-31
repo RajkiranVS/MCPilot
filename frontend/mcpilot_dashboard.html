@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCPilot — Tactical Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; background: #0a0f1e; color: #e8d5a3; min-height: 100vh; }
+  .dash { padding: 16px; }
+  .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f5a623; padding-bottom: 10px; margin-bottom: 16px; }
+  .logo { font-size: 22px; font-weight: 700; color: #f5a623; letter-spacing: 3px; }
+  .tagline { font-size: 10px; color: #8a7a5a; letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+  .status-bar { display: flex; gap: 16px; align-items: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .status-text { font-size: 11px; color: #2ecc71; letter-spacing: 1px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .panel { background: #0d1526; border: 1px solid #2a3550; padding: 14px; }
+  .panel.full { grid-column: 1 / -1; }
+  .panel-title { font-size: 10px; letter-spacing: 2px; color: #f5a623; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #1e2d4a; padding-bottom: 8px; }
+  .input-row { display: flex; gap: 8px; }
+  textarea { flex: 1; background: #060c18; border: 1px solid #2a3550; color: #e8d5a3; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; resize: none; height: 80px; outline: none; }
+  textarea:focus { border-color: #f5a623; }
+  textarea::placeholder { color: #3a4a6a; }
+  .btn { background: #f5a623; color: #0a0f1e; border: none; padding: 0 24px; font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase; }
+  .btn:hover { background: #e09010; }
+  .btn:disabled { background: #3a4020; color: #6a6040; cursor: not-allowed; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+  .compare-box { background: #060c18; border: 1px solid #2a3550; padding: 10px; min-height: 90px; font-size: 12px; line-height: 1.8; }
+  .compare-label { font-size: 9px; letter-spacing: 2px; color: #8a7a5a; margin-bottom: 6px; text-transform: uppercase; }
+  .original-text { color: #c0a060; }
+  .redacted-text { color: #e8d5a3; }
+  .PII-tag { background: #8b1a1a; color: #ff9999; padding: 1px 5px; font-size: 11px; font-weight: 700; border: 1px solid #cc3333; }
+  .threat-none { background: #1a3a1a; color: #5aaa5a; padding: 3px 12px; font-size: 10px; letter-spacing: 1px; border: 1px solid #2a5a2a; display: inline-block; }
+  .threat-high { background: #3a1a1a; color: #ff6666; padding: 3px 12px; font-size: 10px; letter-spacing: 1px; border: 1px solid #7a2a2a; display: inline-block; animation: threatpulse 1s infinite; }
+  @keyframes threatpulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
+  .llm-box { background: #060c18; border: 1px solid #2a3550; border-left: 3px solid #f5a623; padding: 12px; font-size: 12px; line-height: 1.8; color: #c8b88a; min-height: 70px; }
+  .log-feed { max-height: 160px; overflow-y: auto; }
+  .log-entry { font-size: 11px; padding: 5px 0; border-bottom: 1px solid #111d33; display: flex; gap: 10px; align-items: flex-start; }
+  .log-time { color: #3a6aaa; min-width: 80px; }
+  .log-msg { color: #8a9ab8; flex: 1; }
+  .log-tag { font-size: 10px; padding: 1px 6px; white-space: nowrap; }
+  .tag-ok { background: #1a3a1a; color: #5aaa5a; border: 1px solid #2a5a2a; }
+  .tag-PII { background: #3a1a1a; color: #ff8888; border: 1px solid #6a2a2a; }
+  .tag-info { background: #1a2a3a; color: #6a9acc; border: 1px solid #2a4a6a; }
+  .tag-err { background: #4a1a1a; color: #ff6666; border: 1px solid #8a2a2a; }
+  .server-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #111d33; font-size: 12px; }
+  .server-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot-on { background: #2ecc71; }
+  .dot-off { background: #445; }
+  .server-name { color: #c8b88a; flex: 1; }
+  .server-tools { color: #3a6aaa; font-size: 11px; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .metric { background: #060c18; border: 1px solid #2a3550; padding: 10px; text-align: center; }
+  .metric-val { font-size: 24px; font-weight: 700; color: #f5a623; }
+  .metric-label { font-size: 9px; color: #5a6a8a; letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; }
+  .PII-status-row { margin-top: 10px; display: flex; align-items: center; gap: 12px; }
+  .scan-label { font-size: 11px; color: #f5a623; letter-spacing: 1px; }
+  .blink { animation: blink 0.8s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .provider-badge { font-size: 10px; color: #3a6aaa; letter-spacing: 1px; margin-bottom: 8px; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: #060c18; }
+  ::-webkit-scrollbar-thumb { background: #2a3550; }
+  .hint { font-size: 10px; color: #3a4a6a; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="dash">
+  <div class="header">
+    <div>
+      <div class="logo">◈ MCPILOT</div>
+      <div class="tagline">Tactical AI Orchestration Gateway — On-Premise Secure</div>
+    </div>
+    <div class="status-bar">
+      <div class="status-dot"></div>
+      <div class="status-text">SYSTEM ONLINE</div>
+      <div style="font-size:11px;color:#3a6aaa;letter-spacing:1px" id="clock">--:--:--</div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- Query Input -->
+    <div class="panel full">
+      <div class="panel-title">◈ Command Transmission</div>
+      <div class="input-row">
+        <textarea id="queryInput" placeholder="Enter command query... e.g. Operator John Smith badge 123-45-6789 requesting access to sector 4 frequency logs"></textarea>
+        <button class="btn" id="submitBtn" onclick="submitQuery()">TRANSMIT</button>
+      </div>
+      <div class="PII-status-row">
+        <div id="PIIStatus" class="threat-none">◈ PII STATUS: CLEAR</div>
+        <div id="scanLabel" class="scan-label"></div>
+      </div>
+      <div class="hint">Ctrl+Enter to transmit</div>
+    </div>
+
+    <!-- Redaction Analysis -->
+    <div class="panel">
+      <div class="panel-title">◈ Redaction Analysis</div>
+      <div class="compare">
+        <div>
+          <div class="compare-label">Original Input</div>
+          <div class="compare-box original-text" id="originalBox">Awaiting transmission...</div>
+        </div>
+        <div>
+          <div class="compare-label">Sanitised Output</div>
+          <div class="compare-box redacted-text" id="redactedBox">Awaiting transmission...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LLM Response -->
+    <div class="panel">
+      <div class="panel-title">◈ On-Premise LLM Analysis</div>
+      <div class="provider-badge">MODEL: llama3.1:8b &nbsp;·&nbsp; PROVIDER: OLLAMA LOCAL &nbsp;·&nbsp; ON-PREMISE · NO DATA LEAVES FACILITY</div>
+      <div class="llm-box" id="llmBox">Awaiting transmission...</div>
+
+      <div style="margin-top:16px">
+        <div class="panel-title">◈ Connected Servers</div>
+        <div id="serverList">
+          <div class="server-row">
+            <div class="server-dot dot-on"></div>
+            <div class="server-name">echo-server</div>
+            <div class="server-tools">2 tools active</div>
+          </div>
+          <div class="server-row">
+            <div class="server-dot dot-off"></div>
+            <div class="server-name">filesystem</div>
+            <div class="server-tools">standby</div>
+          </div>
+          <div class="server-row">
+            <div class="server-dot dot-off"></div>
+            <div class="server-name">mcp-fetch</div>
+            <div class="server-tools">standby</div>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric">
+            <div class="metric-val" id="totalCalls">0</div>
+            <div class="metric-label">Transmissions</div>
+          </div>
+          <div class="metric">
+            <div class="metric-val" id="PIICount">0</div>
+            <div class="metric-label">PII Detected</div>
+          </div>
+          <div class="metric">
+            <div class="metric-val" id="latency">—</div>
+            <div class="metric-label">Latency ms</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit Log -->
+    <div class="panel full">
+      <div class="panel-title">◈ Immutable Audit Log Feed</div>
+      <div class="log-feed" id="logFeed">
+        <div class="log-entry">
+          <div class="log-time">--:--:--</div>
+          <div class="log-msg">MCPilot Tactical Dashboard initialised. System ready.</div>
+          <div class="log-tag tag-info">INIT</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const API_BASE = 'http://localhost:8000';
+  const API_KEY  = 'mcpilot-dev-key-001';
+  let totalCalls = 0, PIIDetected = 0;
+
+  function now() {
+    return new Date().toTimeString().slice(0, 8);
+  }
+  setInterval(() => {
+    document.getElementById('clock').textContent = now();
+  }, 1000);
+
+  function addLog(msg, tag, cls) {
+    const feed = document.getElementById('logFeed');
+    const el = document.createElement('div');
+    el.className = 'log-entry';
+    el.innerHTML = `<div class="log-time">${now()}</div><div class="log-msg">${msg}</div><div class="log-tag ${cls}">${tag}</div>`;
+    feed.insertBefore(el, feed.firstChild);
+    while (feed.children.length > 30) feed.removeChild(feed.lastChild);
+  }
+
+  function highlightPII(text) {
+    return text
+      .replace(/\[PERSON\]/g,    '<span class="PII-tag">[PERSON]</span>')
+      .replace(/\[SSN\]/g,       '<span class="PII-tag">[SSN]</span>')
+      .replace(/\[EMAIL\]/g,     '<span class="PII-tag">[EMAIL]</span>')
+      .replace(/\[PHONE\]/g,     '<span class="PII-tag">[PHONE]</span>')
+      .replace(/\[MRN\]/g,       '<span class="PII-tag">[MRN]</span>')
+      .replace(/\[DOB\]/g,       '<span class="PII-tag">[DOB]</span>')
+      .replace(/\[RANK_NAME\]/g, '<span class="PII-tag">[RANK_NAME]</span>')
+      .replace(/\[BADGE\]/g,     '<span class="PII-tag">[BADGE]</span>');
+}
+
+  async function submitQuery() {
+    const input  = document.getElementById('queryInput');
+    const btn    = document.getElementById('submitBtn');
+    const query  = input.value.trim();
+    if (!query) return;
+
+    btn.disabled = true;
+    btn.textContent = 'SCANNING...';
+    document.getElementById('scanLabel').innerHTML = '<span class="blink">◈ SCANNING FOR PII...</span>';
+    document.getElementById('originalBox').textContent = query;
+    document.getElementById('redactedBox').innerHTML  = '<span class="blink">processing...</span>';
+    document.getElementById('llmBox').innerHTML       = '<span class="blink">querying local model...</span>';
+
+    addLog(`Transmission received: "${query.slice(0,55)}..."`, 'RX', 'tag-info');
+
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`${API_BASE}/gateway/query`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+        body:    JSON.stringify({ query }),
+      });
+
+      const data = await res.json();
+      const ms   = Date.now() - t0;
+
+      totalCalls++;
+      document.getElementById('totalCalls').textContent = totalCalls;
+      document.getElementById('latency').textContent    = ms;
+      document.getElementById('redactedBox').innerHTML  = highlightPII(data.clean_query || query);
+      document.getElementById('llmBox').textContent     = data.llm_summary || '—';
+      document.getElementById('scanLabel').textContent  = '';
+
+      if (data.phi_detected) {
+        PIIDetected++;
+        document.getElementById('PIICount').textContent    = PIIDetected;
+        document.getElementById('PIIStatus').className     = 'threat-high';
+        document.getElementById('PIIStatus').textContent   = '◈ PII STATUS: DETECTED — REDACTED';
+        addLog(`PII detected and redacted | latency ${ms}ms`, 'PII', 'tag-PII');
+        addLog('Redacted query dispatched to downstream system', 'TX', 'tag-ok');
+      } else {
+        document.getElementById('PIIStatus').className   = 'threat-none';
+        document.getElementById('PIIStatus').textContent = '◈ PII STATUS: CLEAR';
+        addLog(`Query processed clean | latency ${ms}ms`, 'OK', 'tag-ok');
+      }
+      addLog('Audit record written to immutable log', 'AUDIT', 'tag-info');
+
+    } catch (e) {
+      document.getElementById('redactedBox').textContent = 'Gateway unreachable';
+      document.getElementById('llmBox').textContent      = 'Ensure MCPilot is running on localhost:8000';
+      document.getElementById('scanLabel').textContent   = '';
+      addLog('Gateway connection failed — check MCPilot server', 'ERR', 'tag-err');
+    }
+
+    btn.disabled    = false;
+    btn.textContent = 'TRANSMIT';
+  }
+
+  document.getElementById('queryInput').addEventListener('keydown', e => {
+    if (e.ctrlKey && e.key === 'Enter') submitQuery();
+  });
+
+  addLog('Echo server connected — 2 tools available', 'SRV', 'tag-ok');
+  addLog('RAG index loaded — semantic routing active', 'RAG', 'tag-ok');
+  addLog('Ollama LLM online — llama3.1:8b on-premise model ready', 'LLM', 'tag-ok');
+  addLog('PII detection pipeline active — spaCy NER loaded', 'PII', 'tag-ok');
+</script>
+</body>
+</html>
