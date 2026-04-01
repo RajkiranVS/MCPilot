@@ -3,6 +3,9 @@ MCPilot — Gateway Router
 BUILD-006: Semantic routing integrated.
 Supports explicit, semantic, and hybrid routing modes.
 """
+import time
+import asyncio
+from datetime import datetime, timezone
 from app.compliance.pipeline import scan_input, scan_output
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -11,6 +14,7 @@ from app.middleware.rate_limit import limiter
 from app.rag.router import resolve_route, RoutingMode
 from app.core.config import get_settings
 from app.compliance.audit import write_audit_record
+from app.core.metrics import ToolCallEvent
 
 settings = get_settings()
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
@@ -54,15 +58,16 @@ class ToolCallRequest(BaseModel):
         }
     }
 
+
 class ToolCallResponse(BaseModel):
     status:       str
     server_id:    str
     tool_name:    str
-    routing_mode: str          # explicit | semantic | hybrid
-    confidence:   float        # 1.0 for explicit, 0.0–1.0 for semantic
+    routing_mode: str
+    confidence:   float
     result:       dict | None = None
     error:        str | None  = None
-    alternatives: list[dict]  = []  # other candidate tools from RAG
+    alternatives: list[dict]  = []
 
 
 @router.post("/tool", response_model=ToolCallResponse, summary="Invoke MCP tool")
@@ -71,6 +76,7 @@ async def invoke_tool(
     payload: ToolCallRequest,
     request: Request,
 ) -> ToolCallResponse:
+    t0 = time.perf_counter()
     manager = request.app.state.mcp_manager
 
     # ── Resolve route ─────────────────────────────────────────────────────────
@@ -90,11 +96,11 @@ async def invoke_tool(
         f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
     )
 
-    # ── Scan input parameters for PHI ─────────────────────────────────────────
+    # ── Scan input parameters for PII ─────────────────────────────────────────
     input_scan = scan_input(payload.parameters)
     if input_scan.phi_detected:
         logger.warning(
-            f"PHI in input | server={route.server_id} "
+            f"PII in input | server={route.server_id} "
             f"tool={route.tool_name} "
             f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
         )
@@ -104,7 +110,7 @@ async def invoke_tool(
         result = await manager.call_tool(
             server_id=route.server_id,
             tool_name=route.tool_name,
-            parameters=input_scan.redacted,  # use redacted params
+            parameters=input_scan.redacted,
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -114,23 +120,26 @@ async def invoke_tool(
         logger.error(f"Tool call failed | {e}")
         raise HTTPException(status_code=500, detail=f"Tool call failed: {e}")
 
-    # ── Scan output for PHI ───────────────────────────────────────────────────
+    # ── Scan output for PII ───────────────────────────────────────────────────
     output_scan = scan_output(result)
     if output_scan.phi_detected:
         logger.warning(
-            f"PHI in output | server={route.server_id} "
+            f"PII in output | server={route.server_id} "
             f"tool={route.tool_name} "
             f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
         )
 
+    # ── Compute latency ───────────────────────────────────────────────────────
+    latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+
     logger.info(
         f"Tool call OK | server={route.server_id} tool={route.tool_name} "
-        f"phi_input={input_scan.phi_detected} "
-        f"phi_output={output_scan.phi_detected}"
+        f"pii_input={input_scan.phi_detected} "
+        f"pii_output={output_scan.phi_detected} "
+        f"latency={latency_ms}ms"
     )
 
     # ── Write audit record ────────────────────────────────────────────────────
-    import time
     await write_audit_record(
         tenant_id=getattr(request.state, "tenant_id", "unknown"),
         client_id=getattr(request.state, "client_id", "unknown"),
@@ -142,16 +151,29 @@ async def invoke_tool(
         pii_in_output=output_scan.phi_detected,
         redacted_count=input_scan.redacted_count + output_scan.redacted_count,
         status="ok",
-        latency_ms=float(
-            request.headers.get("x-response-time-ms", 0) or 0
-        ),
+        latency_ms=latency_ms,
     )
 
-    logger.info(
-        f"Tool call OK | server={route.server_id} tool={route.tool_name} "
-        f"pii_input={input_scan.phi_detected} "
-        f"pii_output={output_scan.phi_detected}"
-    )
+    # ── Record metrics event ──────────────────────────────────────────────────
+    try:
+        store = request.app.state.metrics
+        store.record(ToolCallEvent(
+            timestamp=    datetime.now(timezone.utc).isoformat(),
+            server_id=    route.server_id,
+            tool_name=    route.tool_name,
+            latency_ms=   latency_ms,
+            pii_detected= input_scan.phi_detected or output_scan.phi_detected,
+            status=       "ok",
+            routing_mode= str(route.mode),
+            tenant_id=    getattr(request.state, "tenant_id", "unknown"),
+        ))
+        await store.broadcast({
+            "type":    "event",
+            "summary": store.summary(),
+            "event":   store.recent_events(1)[0] if store.total_calls > 0 else {},
+        })
+    except Exception as e:
+        logger.warning(f"Metrics recording failed: {e}")
 
     return ToolCallResponse(
         status="ok",
@@ -191,6 +213,7 @@ async def search_tools(
         "total":   len(results),
     }
 
+
 @router.post("/query", summary="Natural language query with local LLM")
 async def natural_language_query(request: Request) -> dict:
     from app.core.llm import complete
@@ -201,18 +224,40 @@ async def natural_language_query(request: Request) -> dict:
     if not query:
         raise HTTPException(status_code=400, detail="query field required")
 
-    # Run PII scan and LLM summary in parallel
+    t0 = time.perf_counter()
+
+    # ── Run PII scan and LLM summary in parallel ──────────────────────────────
     pii_task     = scan_input_async({"query": query})
     summary_task = complete(
         prompt=f"In one sentence, what is this request asking for: '{query}'",
         system="You are a helpful assistant that summarises requests concisely.",
         max_tokens=80,
     )
-
-    # Wait for both simultaneously
-    import asyncio
     input_scan, summary = await asyncio.gather(pii_task, summary_task)
     clean_query = input_scan.redacted.get("query", query)
+
+    latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+    # ── Record metrics ────────────────────────────────────────────────────────
+    try:
+        store = request.app.state.metrics
+        store.record(ToolCallEvent(
+            timestamp=    datetime.now(timezone.utc).isoformat(),
+            server_id=    "ollama",
+            tool_name=    "query",
+            latency_ms=   latency_ms,
+            pii_detected= input_scan.phi_detected,
+            status=       "ok",
+            routing_mode= "llm",
+            tenant_id=    getattr(request.state, "tenant_id", "unknown"),
+        ))
+        await store.broadcast({
+            "type":    "event",
+            "summary": store.summary(),
+            "event":   store.recent_events(1)[0] if store.total_calls > 0 else {},
+        })
+    except Exception as e:
+        logger.warning(f"Metrics recording failed: {e}")
 
     return {
         "query":        query,
@@ -223,12 +268,12 @@ async def natural_language_query(request: Request) -> dict:
         "model":        settings.ollama_model,
     }
 
+
 @router.get("/audit", summary="Recent audit log entries")
 async def get_audit_log(
     limit: int = 20,
     request: Request = None,
 ) -> dict:
-    """Returns recent audit log entries for the dashboard."""
     from app.db.base import get_session_factory
     from app.db.repository import AuditLogRepository
 
@@ -258,7 +303,6 @@ async def get_audit_log(
 
 @router.get("/audit/verify", summary="Verify audit log hash chain integrity")
 async def verify_audit_chain() -> dict:
-    """Verifies the tamper-proof hash chain of the audit log."""
     from app.db.base import get_session_factory
     from app.db.repository import AuditLogRepository
 
