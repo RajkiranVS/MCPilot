@@ -231,3 +231,55 @@ class RetentionPolicy(Base):
 
     def __repr__(self) -> str:
         return f"<RetentionPolicy tenant={self.tenant_id} audit={self.audit_retention_days}d>"
+
+class Tenant(Base):
+    """
+    Registered tenant (organisation using MCPilot).
+    Each tenant gets isolated audit logs, metrics, and tool access.
+    """
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    tenant_id:   Mapped[str]  = mapped_column(String(128), unique=True, nullable=False)
+    name:        Mapped[str]  = mapped_column(String(256), nullable=False)
+    active:      Mapped[bool] = mapped_column(Boolean, default=True)
+    plan:        Mapped[str]  = mapped_column(String(32), default="standard")
+    created_at:  Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    api_keys: Mapped[list["APIKey"]] = relationship("APIKey", back_populates="tenant", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<Tenant id={self.tenant_id} name={self.name}>"
+
+
+class APIKey(Base):
+    """
+    API keys scoped to a tenant.
+    Keys are stored hashed — never in plaintext.
+    """
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    tenant_id:   Mapped[str]  = mapped_column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    client_id:   Mapped[str]  = mapped_column(String(128), nullable=False)
+    key_hash:    Mapped[str]  = mapped_column(String(256), nullable=False)
+    key_prefix:  Mapped[str]  = mapped_column(String(16),  nullable=False)  # first 8 chars for display
+    scopes:      Mapped[str]  = mapped_column(Text, default='["gateway:invoke"]')
+    active:      Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at:  Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="api_keys")
+
+    __table_args__ = (
+        Index("ix_api_keys_prefix", "key_prefix"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<APIKey prefix={self.key_prefix} tenant={self.tenant_id}>"

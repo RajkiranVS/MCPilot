@@ -37,7 +37,12 @@ _API_KEY_STORE: dict[str, dict] = {
     "mcpilot-dev-key-001": {
         "client_id": "dev-client",
         "tenant_id": "dev-tenant",
-        "scopes": ["gateway:invoke"],
+        "scopes":    ["gateway:invoke"],
+    },
+    "mcpilot-admin-key-001": {
+        "client_id": "admin-client",
+        "tenant_id": "dev-tenant",
+        "scopes":    ["gateway:invoke", "admin"],
     },
 }
 
@@ -54,7 +59,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         # WebSocket upgrades cannot receive HTTP responses — the endpoint
         # handles its own auth via query param, so pass them straight through.
-        logger.info(f"Middleware scope type: {request.scope.get('type')} path: {request.url.path}")
         if request.scope.get("type") == "websocket":
             return await call_next(request)
 
@@ -86,19 +90,37 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return _unauthorized("Invalid or expired token")
 
         elif api_key:
-            # ── API key path ──────────────────────────────────────────────────
+            # ── API key path ──────────────────────────────────────────────────────
+            # Check in-memory store first (dev keys — always fast)
             key_data = _API_KEY_STORE.get(api_key)
+
+            if not key_data:
+                # Fall back to DB lookup for tenant-managed keys
+                try:
+                    from app.db.base import get_session_factory
+                    from app.db.repository import TenantRepository
+                    factory = get_session_factory()
+                    async with factory() as session:
+                        repo = TenantRepository(session)
+                        key_data = await repo.lookup_api_key(api_key)
+                        if key_data:
+                            await session.commit()
+                except Exception as e:
+                    logger.error(f"DB API key lookup failed: {e}")
+            
             if not key_data:
                 logger.warning(f"Invalid API key | path={path}")
                 return _unauthorized("Invalid API key")
-            request.state.client_id = key_data["client_id"]
-            request.state.tenant_id = key_data["tenant_id"]
-            request.state.scopes = key_data["scopes"]
+            
+            request.state.client_id  = key_data["client_id"]
+            request.state.tenant_id  = key_data["tenant_id"]
+            request.state.scopes     = key_data["scopes"]
             request.state.auth_scheme = "api_key"
             logger.debug(
                 f"API key auth OK | client={key_data['client_id']} "
                 f"tenant={key_data['tenant_id']} path={path}"
             )
+
 
         else:
             # ── No credentials provided ───────────────────────────────────────

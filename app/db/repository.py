@@ -3,6 +3,7 @@ MCPilot — Tool Registry Repository
 Data access layer for MCP server and tool schema persistence.
 All database operations go through this class — no raw SQL in routers.
 """
+from datetime import datetime, timezone
 import json
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +11,8 @@ from sqlalchemy.orm import selectinload
 from app.db.models import MCPServer, MCPTool, HealthEvent
 from app.core.logging import get_logger
 import hashlib
-from app.db.models import MCPServer, MCPTool, HealthEvent, AuditLog
+from app.db.models import MCPServer, MCPTool, HealthEvent, AuditLog, Tenant, APIKey
+from app.core.security import hash_secret, verify_secret
 
 logger = get_logger(__name__)
 
@@ -309,3 +311,104 @@ class AuditLogRepository:
             "records_checked": len(records),
             "broken_links":  broken,
         }
+
+class TenantRepository:
+    """
+    Manages tenants and API keys.
+    Provides DB-backed API key lookup for the auth middleware.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def create_tenant(
+        self,
+        tenant_id: str,
+        name:      str,
+        plan:      str = "standard",
+    ) -> Tenant:
+        tenant = Tenant(
+            tenant_id=tenant_id,
+            name=name,
+            plan=plan,
+        )
+        self._session.add(tenant)
+        await self._session.flush()
+        logger.info(f"Tenant created | id={tenant_id} name={name}")
+        return tenant
+
+    async def get_tenant(self, tenant_id: str) -> Tenant | None:
+        result = await self._session.execute(
+            select(Tenant).where(Tenant.tenant_id == tenant_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_tenants(self) -> list[Tenant]:
+        result = await self._session.execute(
+            select(Tenant).where(Tenant.active == True).order_by(Tenant.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def create_api_key(
+        self,
+        tenant_id: str,
+        client_id: str,
+        raw_key:   str,
+        scopes:    list[str] | None = None,
+    ) -> APIKey:
+        tenant = await self.get_tenant(tenant_id)
+        if not tenant:
+            raise ValueError(f"Tenant not found: {tenant_id}")
+
+        api_key = APIKey(
+            tenant_id=tenant.id,
+            client_id=client_id,
+            key_hash=hash_secret(raw_key),
+            key_prefix=raw_key[:8],
+            scopes=json.dumps(scopes or ["gateway:invoke"]),
+        )
+        self._session.add(api_key)
+        await self._session.flush()
+        logger.info(f"API key created | tenant={tenant_id} client={client_id}")
+        return api_key
+
+    async def lookup_api_key(self, raw_key: str) -> dict | None:
+        """
+        Look up an API key by prefix then verify hash.
+        Returns tenant context dict or None if invalid.
+        """
+        prefix = raw_key[:8]
+        result = await self._session.execute(
+            select(APIKey, Tenant)
+            .join(Tenant, APIKey.tenant_id == Tenant.id)
+            .where(APIKey.key_prefix == prefix)
+            .where(APIKey.active == True)
+            .where(Tenant.active == True)
+        )
+        rows = result.all()
+
+        for api_key, tenant in rows:
+            if verify_secret(raw_key, api_key.key_hash):
+                # Update last used
+                api_key.last_used_at = datetime.now(timezone.utc)
+                return {
+                    "client_id": api_key.client_id,
+                    "tenant_id": tenant.tenant_id,
+                    "scopes":    json.loads(api_key.scopes),
+                }
+        return None
+
+    async def deactivate_api_key(self, key_prefix: str, tenant_id: str) -> bool:
+        tenant = await self.get_tenant(tenant_id)
+        if not tenant:
+            return False
+        result = await self._session.execute(
+            select(APIKey)
+            .where(APIKey.key_prefix == key_prefix)
+            .where(APIKey.tenant_id == tenant.id)
+        )
+        api_key = result.scalar_one_or_none()
+        if api_key:
+            api_key.active = False
+            return True
+        return False

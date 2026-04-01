@@ -13,17 +13,8 @@ from app.core.config import get_settings
 settings = get_settings()
 
 # ── Password / API key hashing ────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def hash_secret(secret: str) -> str:
-    """Hash an API key or password for storage."""
-    return pwd_context.hash(secret)
-
-
-def verify_secret(plain: str, hashed: str) -> bool:
-    """Verify a plain secret against its hash."""
-    return pwd_context.verify(plain, hashed)
+# pbkdf2_sha256: built into passlib, no external C dependency unlike bcrypt 4.x
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
@@ -65,3 +56,12 @@ def decode_access_token(token: str) -> TokenPayload:
         algorithms=[settings.algorithm],
     )
     return TokenPayload(**payload)
+
+def hash_secret(secret: str) -> str:
+    """Hash an API key or password for storage. Truncates to bcrypt's 72-byte limit."""
+    return pwd_context.hash(secret[:72])
+
+
+def verify_secret(plain: str, hashed: str) -> bool:
+    """Verify a plain secret against its hash."""
+    return pwd_context.verify(plain[:72], hashed)

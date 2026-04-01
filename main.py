@@ -36,7 +36,7 @@ from app.middleware.logging import RequestLoggingMiddleware
 from app.mcp import mcp_manager, registry, MCPServerConfig, TransportType
 from app.rag import tool_indexer
 from app.db.base import init_db
-from app.routers import health, gateway, auth, compliance, metrics
+from app.routers import health, gateway, auth, compliance, metrics, admin
 from app.core.metrics import metrics_store
 
 settings = get_settings()
@@ -109,94 +109,6 @@ async def lifespan(app: FastAPI):
         await mcp_manager.disconnect_all()
 
     logger.info(f"{settings.app_name} shutdown complete")
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
-    logger.info(f"Environment: {settings.environment}")
-
-    if settings.environment != "test":
-        init_db()
-        logger.info("Database initialised ✓")
-        # ── Register MCP servers ──────────────────────────────────────────────
-        # Echo server — reliable on Windows, used for demo + testing
-        registry.register(MCPServerConfig(
-            server_id="echo",
-            name="Echo Server",
-            transport=TransportType.STDIO,
-            command=["python", "app/mcp/servers/echo_server.py"],
-        ))
-
-        # Filesystem + Fetch servers — re-enable after Windows STDIO fix
-        # registry.register(MCPServerConfig(
-        #     server_id="filesystem",
-        #     name="MCP Filesystem Server",
-        #     transport=TransportType.STDIO,
-        #     command=["uvx", "mcp-server-filesystem", "."],
-        # ))
-        # registry.register(MCPServerConfig(
-        #     server_id="fetch",
-        #     name="MCP Fetch Server",
-        #     transport=TransportType.STDIO,
-        #     command=["uvx", "mcp-server-fetch"],
-        # ))
-
-        # ── Connect each server individually ──────────────────────────────────
-        # One failing server does NOT crash the entire startup
-        logger.info("Connecting to MCP servers...")
-        for config in registry.all():
-            try:
-                await mcp_manager._connect_one(config)
-            except Exception as e:
-                logger.error(
-                    f"Server '{config.server_id}' failed to connect: {e}"
-                )
-
-        connected = [s for s in mcp_manager.list_servers() if s["connected"]]
-        logger.info(f"MCP servers connected: {len(connected)}")
-
-        # ── Build RAG tool index ──────────────────────────────────────────────
-        all_tools = mcp_manager.get_all_tools()
-        if all_tools:
-            logger.info(f"Building RAG index for {len(all_tools)} tools...")
-            tool_indexer.build(all_tools)
-            logger.info("RAG index ready ✓")
-        else:
-            logger.warning("No tools discovered — RAG index skipped")
-
-    # ── Build RAG tool index ──────────────────────────────────────────────
-        all_tools = mcp_manager.get_all_tools()
-        if all_tools:
-            logger.info(f"Building RAG index for {len(all_tools)} tools...")
-            tool_indexer.build(all_tools)
-            logger.info("RAG index ready ✓")
-        else:
-            logger.warning("No tools discovered — RAG index skipped")
-
-    # ── Warm up spaCy PII model ───────────────────────────────────────────
-        logger.info("Warming up PII detection model...")
-        from app.compliance.phi_model import get_phi_model
-        get_phi_model()
-        logger.info("PII model ready ✓")
-
-        # ── Warm up Ollama ────────────────────────────────────────────────────
-        logger.info("Warming up Ollama model...")
-        try:
-            from app.core.llm import complete
-            await complete("ping", system="Reply ok.", max_tokens=5)
-            logger.info("Ollama model ready ✓")
-        except Exception as e:
-            logger.warning(f"Ollama warmup failed: {e}")
-    # ── Initialise metrics store ──────────────────────────────────────────
-        app.state.metrics = metrics_store
-        logger.info("Metrics store initialised ✓")
-
-    app.state.mcp_manager = mcp_manager
-    app.state.tool_indexer = tool_indexer
-    yield
-
-    if settings.environment != "test":
-        logger.info("Disconnecting MCP servers...")
-        await mcp_manager.disconnect_all()
-
-    logger.info(f"{settings.app_name} shutdown complete")
 
 
 app = FastAPI(
@@ -234,6 +146,7 @@ app.include_router(gateway.router)
 app.include_router(auth.router)
 app.include_router(compliance.router)
 app.include_router(metrics.router)
+app.include_router(admin.router)
 
 # ── Serve frontend static files ───────────────────────────────────────────────
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
