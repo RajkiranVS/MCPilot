@@ -10,6 +10,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: mcpilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
@@ -23,7 +38,7 @@ jobs:
         uses: actions/cache@v4.2.2
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-ci.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
@@ -32,28 +47,27 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements-ci.txt
 
-      - name: Run unit tests
+      - name: Verify app imports cleanly
         env:
           ENVIRONMENT: test
           SECRET_KEY: ci-test-secret-key
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/mcpilot
-        run: |
-          pytest tests/unit/ -v --tb=short
-
-      - name: Verify app imports cleanly
+          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/mcpilot
         run: |
           python -c "from main import app; print('✓ App imports OK')"
+
       - name: Run unit tests
         env:
           ENVIRONMENT: test
           SECRET_KEY: ci-test-secret-key
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/mcpilot
+          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/mcpilot
+          TRANSFORMERS_OFFLINE: "0"
         run: |
-          pytest tests/unit/ -v --tb=short
+          pytest tests/unit/ -v --tb=short --timeout=120
 
       - name: Run integration tests
         env:
           ENVIRONMENT: test
           SECRET_KEY: ci-test-secret-key
+          DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/mcpilot
         run: |
-          pytest tests/integration/ -v --tb=short
+          pytest tests/integration/ -v --tb=short --timeout=60
