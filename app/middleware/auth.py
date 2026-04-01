@@ -27,6 +27,7 @@ PUBLIC_PATHS = {
     "/redoc",
     "/openapi.json",
     "/favicon.ico",
+    "/metrics/ws",      # WebSocket — auth handled via query param
 }
 
 # ── In-memory API key store ───────────────────────────────────────────────────
@@ -51,6 +52,12 @@ def _unauthorized(detail: str) -> JSONResponse:
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        # WebSocket upgrades cannot receive HTTP responses — the endpoint
+        # handles its own auth via query param, so pass them straight through.
+        logger.info(f"Middleware scope type: {request.scope.get('type')} path: {request.url.path}")
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
+
         path = request.url.path
 
         # ── Public paths — pass through immediately ───────────────────────────

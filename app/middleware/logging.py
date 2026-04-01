@@ -12,6 +12,8 @@ logger = get_logger(__name__)
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
