@@ -159,3 +159,75 @@ class AuditLog(Base):
             f"server={self.server_id} tool={self.tool_name} "
             f"pii={self.pii_in_input or self.pii_in_output}>"
         )
+
+class DataSubject(Base):
+    """
+    Tracks data subjects (individuals whose PII was processed).
+    Enables right-to-erasure (GDPR Article 17 / DPDP Section 12).
+
+    When a subject requests erasure:
+      1. Their pseudonym mapping is deleted
+      2. Their audit records are anonymised (not deleted — audit integrity)
+      3. erasure_requested_at is set for compliance evidence
+    """
+    __tablename__ = "data_subjects"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    # Original identifier → pseudonym mapping
+    original_id:    Mapped[str] = mapped_column(String(256), nullable=False)
+    pseudonym:      Mapped[str] = mapped_column(String(64),  nullable=False, unique=True)
+    tenant_id:      Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+
+    # Erasure tracking
+    erasure_requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    erasure_completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    erasure_status: Mapped[str] = mapped_column(
+        String(32), nullable=True
+    )  # pending | completed | rejected
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_data_subjects_tenant", "tenant_id"),
+        Index("ix_data_subjects_pseudonym", "pseudonym"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DataSubject pseudonym={self.pseudonym} tenant={self.tenant_id}>"
+
+
+class RetentionPolicy(Base):
+    """
+    Per-tenant data retention policy configuration.
+    Overrides global defaults from settings.
+
+    DPDP Act 2023 (India) — Section 8(7):
+      Data must not be retained longer than necessary.
+    GDPR Article 5(1)(e):
+      Storage limitation principle.
+    """
+    __tablename__ = "retention_policies"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    tenant_id:           Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    audit_retention_days: Mapped[int] = mapped_column(Integer, default=2555)
+    pii_retention_days:   Mapped[int] = mapped_column(Integer, default=365)
+    auto_purge_enabled:   Mapped[bool] = mapped_column(Boolean, default=False)
+    policy_version:       Mapped[str]  = mapped_column(String(16), default="1.0")
+    created_at:  Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at:  Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    def __repr__(self) -> str:
+        return f"<RetentionPolicy tenant={self.tenant_id} audit={self.audit_retention_days}d>"
