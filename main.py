@@ -36,6 +36,7 @@ from app.routers import health, gateway, auth
 from app.mcp import mcp_manager, registry, MCPServerConfig, TransportType
 from app.rag import tool_indexer
 from app.db.base import init_db
+from app.routers import health, gateway, auth, compliance
 
 settings = get_settings()
 setup_logging()
@@ -164,6 +165,7 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 app.include_router(health.router)
 app.include_router(gateway.router)
 app.include_router(auth.router)
+app.include_router(compliance.router)
 
 
 @app.get("/", include_in_schema=False)

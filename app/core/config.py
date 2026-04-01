@@ -45,6 +45,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ── Data Retention + GDPR/DPDP ───────────────────────────────────────────
+    audit_log_retention_days:    int = 2555  # 7 years — HIPAA requirement
+    pii_data_retention_days:     int = 365   # 1 year default
+    enable_right_to_erasure:     bool = True
+    enable_pseudonymisation:     bool = True
+    data_controller_name:        str = "MCPilot Technologies"
+    data_controller_contact:     str = "privacy@mcpilot.in"
 
 @lru_cache()
 def get_settings() -> Settings:
