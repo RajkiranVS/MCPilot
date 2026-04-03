@@ -11,11 +11,14 @@ Redaction format: [PERSON], [SSN], [MRN], [DOB], [PHONE], [EMAIL]
 Week 3: scan() and redact() will call AWS SageMaker endpoint
 instead of local spaCy model when ENVIRONMENT=production.
 """
+import re
 import json
 from dataclasses import dataclass
 from app.compliance.phi_model import get_phi_model
-from app.compliance.patterns import REDACT_LABELS, PHI_LABELS
+from app.compliance.patterns import REDACT_LABELS, PHI_LABELS, MILITARY_RANKS, BADGE_REGEX
 from app.core.logging import get_logger
+
+
 
 logger = get_logger(__name__)
 
@@ -40,6 +43,40 @@ class DetectionResult:
     redacted_text:  str           # text with PHI replaced
     entity_count:   int
     redacted_count: int
+
+
+def novelty_check(text: str, spacy_result: DetectionResult) -> bool:
+    """
+    Decide whether to escalate to LLM.
+    Returns True only if text likely contains PII that Tier 1+2 missed.
+
+    Checks:
+    1. Military rank words present but no PERSON/RANK_NAME entity found
+    2. Badge-like number patterns present but no BADGE entity found
+    3. Text is long enough to potentially contain PII (>3 words)
+    """
+    if len(text.split()) < 3:
+        return False  # too short to contain novel PII
+
+    text_lower = text.lower()
+    words = set(text_lower.split())
+    found_labels = {e.label for e in spacy_result.entities}
+
+    # Check 1 — rank words without person detection
+    rank_present = bool(words & MILITARY_RANKS)
+    person_found = bool(found_labels & {"PERSON", "RANK_NAME"})
+    if rank_present and not person_found:
+        logger.debug("Novelty check: rank word found without PERSON entity — escalating to LLM")
+        return True
+
+    # Check 2 — badge-like numbers without BADGE/SSN detection
+    badge_matches = BADGE_REGEX.findall(text)
+    badge_found   = bool(found_labels & {"BADGE", "SSN", "MRN"})
+    if badge_matches and not badge_found:
+        logger.debug("Novelty check: badge pattern found without entity — escalating to LLM")
+        return True
+
+    return False
 
 
 def detect(text: str) -> DetectionResult:
@@ -166,6 +203,120 @@ def scan_list(data: list) -> tuple[list, bool]:
     return redacted, any_phi
 
 async def detect_with_llm(text: str) -> DetectionResult:
+    """
+    Tiered PII detection:
+    Tier 1+2: spaCy (fast, <30ms)
+    Tier 3:   LLM via Ollama (only if novelty_check passes, ~3.5s)
+    Cache:    LLM results cached 1 hour
+    """
+    from app.core.llm import complete
+    from app.compliance.cache import pii_cache
+    import re
+
+    # ── Tier 1+2: spaCy ───────────────────────────────────────────────────────
+    spacy_result = detect(text)
+
+    # ── Novelty check ─────────────────────────────────────────────────────────
+    if not novelty_check(text, spacy_result):
+        logger.debug(f"PII detection: spaCy sufficient, skipping LLM | entities={spacy_result.entity_count}")
+        return spacy_result
+
+    # ── Check cache before calling LLM ────────────────────────────────────────
+    cached = pii_cache.get(text)
+    if cached:
+        logger.debug("PII detection: LLM cache hit")
+        return cached
+
+    # ── Tier 3: LLM ───────────────────────────────────────────────────────────
+    logger.info("PII detection: escalating to LLM (novel pattern detected)")
+
+    prompt = (
+        f'You are a PII redaction system for defence communications.\n\n'
+        f'Text: "{text}"\n\n'
+        f'Identify ALL sensitive personal identifiers. Return ONLY a JSON array:\n'
+        f'[{{"text": "exact substring to redact", "label": "LABEL"}}]\n\n'
+        f'Detection rules:\n'
+        f'- Military rank + name together as ONE entity → label: RANK_NAME\n'
+        f'  Examples: "Major Gaurav", "General Rastogi", "Colonel Singh"\n'
+        f'  ALWAYS include the rank word WITH the name as a single entity\n'
+        f'- If multiple people appear, identify EACH one separately\n'
+        f'- Full name without rank → label: PERSON\n'
+        f'- Any ID or badge number in ANY format → label: BADGE\n'
+        f'- Phone numbers → label: PHONE\n'
+        f'- Email addresses → label: EMAIL\n'
+        f'- SSN (XXX-XX-XXXX format only) → label: SSN\n'
+        f'- CRITICAL: Never split a rank+name — "Major Aryan" is ONE entity\n'
+        f'- CRITICAL: Find ALL people in the text, not just the first one\n'
+        f'- Choose ONE label per entity — never combine with pipe or slash\n'
+        f'- Return [] if no PII found\n'
+        f'- Return ONLY valid JSON array, no explanation'
+    )
+
+    try:
+        response = await complete(
+            prompt=prompt,
+            system="You are a PII detection API. Return only valid JSON.",
+            max_tokens=100,
+        )
+        match = re.search(r'\[.*?\]', response, re.DOTALL)
+        if not match:
+            return spacy_result
+
+        entities_raw = json.loads(match.group())
+        if not entities_raw:
+            return spacy_result
+
+        # Merge LLM entities with spaCy entities
+        redacted = text
+        entities = list(spacy_result.entities)  # start with spaCy findings
+        positioned = []
+
+        for e in entities_raw:
+            idx = redacted.find(e["text"])
+            if idx >= 0:
+                # Only add if not already covered by spaCy
+                already_covered = any(
+                    abs(ex.start - idx) < 5
+                    for ex in spacy_result.entities
+                )
+                if not already_covered:
+                    positioned.append((idx, idx + len(e["text"]), e["text"], e["label"]))
+
+        # Deduplicate overlaps
+        positioned.sort(key=lambda x: x[0])
+        deduped = []
+        for item in positioned:
+            if deduped and item[0] < deduped[-1][1]:
+                if (item[1] - item[0]) > (deduped[-1][1] - deduped[-1][0]):
+                    deduped[-1] = item
+            else:
+                deduped.append(item)
+
+        deduped.sort(key=lambda x: x[0], reverse=True)
+        for start, end, orig_text, label in deduped:
+            redacted = redacted[:start] + f"[{label}]" + redacted[end:]
+            entities.append(PHIEntity(
+                text=orig_text, label=label,
+                start=start, end=end,
+                redact=True, label_name=label,
+            ))
+
+        result = DetectionResult(
+            original_text=text,
+            entities=entities,
+            phi_detected=len(entities) > 0,
+            redacted_text=redacted,
+            entity_count=len(entities),
+            redacted_count=len(entities),
+        )
+
+        # Cache the LLM result
+        pii_cache.set(text, result)
+        return result
+
+    except Exception as e:
+        logger.warning(f"LLM PII detection failed, using spaCy result: {e}")
+        return spacy_result
     """
     LLM-based PHI detection using local Ollama.
     Catches contextual PHI that regex/NER misses —

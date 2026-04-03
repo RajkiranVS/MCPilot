@@ -3,6 +3,28 @@ MCPilot — PHI Regex Patterns
 Multi-token patterns for spaCy EntityRuler.
 """
 
+# ── Military ranks (Indian Armed Forces + common) ─────────────────────────────
+MILITARY_RANKS = {
+    "general", "major", "colonel", "captain", "lieutenant",
+    "brigadier", "wing commander", "squadron leader", "flight lieutenant",
+    "sergeant", "corporal", "private", "admiral", "commodore",
+    "marshal", "naib subedar", "subedar", "havildar", "sepoy",
+    "rear admiral", "vice admiral", "air marshal", "air commodore",
+    "group captain", "warrant officer", "petty officer",
+}
+
+# ── Badge/ID number pattern (any hyphenated number sequence) ─────────────────
+import re
+BADGE_REGEX = re.compile(
+    r'\b\d{2,6}[-/]\d{2,6}(?:[-/]\d{2,6})?\b'
+)
+
+# ── Sector/channel/frequency references ──────────────────────────────────────
+SECTOR_REGEX = re.compile(
+    r'\b(?:sector|channel|frequency|freq|grid|zone)[-\s]?\d+\w*\b',
+    re.IGNORECASE
+)
+
 REGEX_PATTERNS = [
     # SSN: 123-45-6789
     {
