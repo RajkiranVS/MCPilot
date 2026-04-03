@@ -16,7 +16,10 @@ import json
 from dataclasses import dataclass
 from app.compliance.phi_model import get_phi_model
 from app.compliance.patterns import REDACT_LABELS, PHI_LABELS, MILITARY_RANKS, BADGE_REGEX
+from app.compliance.cache import pii_cache
 from app.core.logging import get_logger
+from app.core.llm import complete
+
 
 
 
@@ -209,9 +212,6 @@ async def detect_with_llm(text: str) -> DetectionResult:
     Tier 3:   LLM via Ollama (only if novelty_check passes, ~3.5s)
     Cache:    LLM results cached 1 hour
     """
-    from app.core.llm import complete
-    from app.compliance.cache import pii_cache
-    import re
 
     # ── Tier 1+2: spaCy ───────────────────────────────────────────────────────
     spacy_result = detect(text)
@@ -266,23 +266,19 @@ async def detect_with_llm(text: str) -> DetectionResult:
         if not entities_raw:
             return spacy_result
 
-        # Merge LLM entities with spaCy entities
+        # ── Use LLM result directly, don't merge with spaCy ──────────────────
+        # LLM has full context — its entities are more accurate than spaCy
+        # for military rank+name combinations and novel badge formats
         redacted = text
-        entities = list(spacy_result.entities)  # start with spaCy findings
+        entities = []
         positioned = []
 
         for e in entities_raw:
-            idx = redacted.find(e["text"])
+            idx = text.find(e["text"])
             if idx >= 0:
-                # Only add if not already covered by spaCy
-                already_covered = any(
-                    abs(ex.start - idx) < 5
-                    for ex in spacy_result.entities
-                )
-                if not already_covered:
-                    positioned.append((idx, idx + len(e["text"]), e["text"], e["label"]))
+                positioned.append((idx, idx + len(e["text"]), e["text"], e["label"]))
 
-        # Deduplicate overlaps
+        # Deduplicate overlaps — keep longer entity
         positioned.sort(key=lambda x: x[0])
         deduped = []
         for item in positioned:
@@ -292,6 +288,21 @@ async def detect_with_llm(text: str) -> DetectionResult:
             else:
                 deduped.append(item)
 
+        # Also add spaCy entities not covered by LLM
+        for spacy_ent in spacy_result.entities:
+            if not spacy_ent.redact:
+                continue
+            covered = any(
+                s <= spacy_ent.start < e
+                for s, e, _, _ in deduped
+            )
+            if not covered:
+                deduped.append((
+                    spacy_ent.start, spacy_ent.end,
+                    spacy_ent.text, spacy_ent.label
+                ))
+
+        # Sort and redact end-to-start
         deduped.sort(key=lambda x: x[0], reverse=True)
         for start, end, orig_text, label in deduped:
             redacted = redacted[:start] + f"[{label}]" + redacted[end:]
@@ -310,99 +321,9 @@ async def detect_with_llm(text: str) -> DetectionResult:
             redacted_count=len(entities),
         )
 
-        # Cache the LLM result
         pii_cache.set(text, result)
         return result
 
     except Exception as e:
         logger.warning(f"LLM PII detection failed, using spaCy result: {e}")
         return spacy_result
-    """
-    LLM-based PHI detection using local Ollama.
-    Catches contextual PHI that regex/NER misses —
-    badge numbers, military IDs, rank+name combinations.
-    Falls back to spaCy-only if Ollama unavailable.
-    """
-    from app.core.llm import complete
-    import re
-
-    prompt = (
-        f'You are a PII redaction system for defence communications.\n\n'
-        f'Text: "{text}"\n\n'
-        f'Identify ALL sensitive personal identifiers. Return ONLY a JSON array:\n'
-        f'[{{"text": "exact substring to redact", "label": "LABEL"}}]\n\n'
-        f'Detection rules:\n'
-        f'- Military rank + name together as ONE entity → label: RANK_NAME\n'
-        f'  Examples: "General Rastogi", "Major Aryan", "Colonel Singh", "Captain Sharma"\n'
-        f'  ALWAYS include the rank word WITH the name as a single entity\n'
-        f'- If multiple people appear, identify EACH one separately\n'
-        f'- Full name without rank (John Smith) → label: PERSON\n'
-        f'- Any ID or badge number in ANY format → label: BADGE\n'
-        f'  Examples: 123-45-67-890, 12-123-434, 222-334, B-12345\n'
-        f'- Phone numbers → label: PHONE\n'
-        f'- Email addresses → label: EMAIL\n'
-        f'- SSN (XXX-XX-XXXX format only) → label: SSN\n'
-        f'- CRITICAL: Never split a rank+name — "Major Aryan" is ONE entity\n'
-        f'- CRITICAL: Find ALL people in the text, not just the first one\n'
-        f'- Choose ONE label per entity — never combine with pipe or slash\n'
-        f'- Return [] if no PII found\n'
-        f'- Return ONLY valid JSON array, no explanation'
-    )
-
-    try:
-        response = await complete(prompt=prompt, system="You are a PII detection API. Return only valid JSON.", max_tokens=100)
-        # Extract JSON from response
-        match = re.search(r'\[.*?\]', response, re.DOTALL)
-        if not match:
-            return detect(text)  # fall back to spaCy
-
-        entities_raw = json.loads(match.group())
-
-        if not entities_raw:
-            return detect(text)
-
-        # Build redacted text from LLM findings
-        redacted = text
-        entities = []
-        # Sort by position found in text, replace from end to start
-        positioned = []
-        for e in entities_raw:
-            idx = redacted.find(e["text"])
-            if idx >= 0:
-                positioned.append((idx, idx + len(e["text"]), e["text"], e["label"]))
-
-        # Deduplicate — if two entities overlap, keep the longer one
-        positioned.sort(key=lambda x: x[0])
-        deduped = []
-        for item in positioned:
-            if deduped and item[0] < deduped[-1][1]:
-                # Overlapping — keep whichever is longer
-                if (item[1] - item[0]) > (deduped[-1][1] - deduped[-1][0]):
-                    deduped[-1] = item
-            else:
-                deduped.append(item)
-
-        deduped.sort(key=lambda x: x[0], reverse=True)
-        for start, end, orig_text, label in deduped:
-            redacted = redacted[:start] + f"[{label}]" + redacted[end:]
-            entities.append(PHIEntity(
-                text=orig_text,
-                label=label,
-                start=start,
-                end=end,
-                redact=True,
-                label_name=label,
-            ))
-
-        return DetectionResult(
-            original_text=text,
-            entities=entities,
-            phi_detected=len(entities) > 0,
-            redacted_text=redacted,
-            entity_count=len(entities),
-            redacted_count=len(entities),
-        )
-
-    except Exception as e:
-        logger.warning(f"LLM PHI detection failed, falling back to spaCy: {e}")
-        return detect(text)  # always fall back gracefully

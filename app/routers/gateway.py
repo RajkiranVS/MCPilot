@@ -218,6 +218,8 @@ async def search_tools(
 async def natural_language_query(request: Request) -> dict:
     from app.core.llm import complete
     from app.compliance.pipeline import scan_input_async
+    from app.compliance.cache import pii_cache
+    import hashlib
 
     body = await request.json()
     query = body.get("query", "")
@@ -226,17 +228,48 @@ async def natural_language_query(request: Request) -> dict:
 
     t0 = time.perf_counter()
 
-    # ── Run PII scan and LLM summary in parallel ──────────────────────────────
-    pii_task     = scan_input_async({"query": query})
-    summary_task = complete(
-        prompt=f"In one sentence, what is this request asking for: '{query}'",
-        system="You are a helpful assistant that summarises requests concisely.",
-        max_tokens=80,
-    )
-    input_scan, summary = await asyncio.gather(pii_task, summary_task)
+    # ── Check response cache first ────────────────────────────────────────────
+    cache_key = f"query:{hashlib.sha256(query.encode()).hexdigest()[:16]}"
+    cached_response = pii_cache._store.get(cache_key)
+    if cached_response:
+        from datetime import datetime, timezone
+        if cached_response.expires_at > datetime.now(timezone.utc):
+            logger.debug("Query cache hit")
+            return cached_response.result  # result field stores the response dict
+
+    # ── Tier 1+2: Fast PII scan ───────────────────────────────────────────────
+    input_scan = await scan_input_async({"query": query})
     clean_query = input_scan.redacted.get("query", query)
 
+    # ── LLM summary only if PII detected ─────────────────────────────────────
+    if input_scan.phi_detected:
+        summary = await complete(
+            prompt=f"In one sentence, what is this request asking for: '{clean_query}'",
+            system="You are a helpful assistant that summarises requests concisely.",
+            max_tokens=60,
+        )
+    else:
+        summary = "No sensitive data detected. Query passed through clean."
+
     latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+    response = {
+        "query":        query,
+        "phi_detected": input_scan.phi_detected,
+        "clean_query":  clean_query,
+        "llm_summary":  summary,
+        "llm_provider": "ollama (on-premise)",
+        "model":        settings.ollama_model,
+    }
+
+    # ── Cache the full response ───────────────────────────────────────────────
+    if input_scan.phi_detected:
+        from app.compliance.cache import CacheEntry
+        from datetime import datetime, timezone, timedelta
+        pii_cache._store[cache_key] = CacheEntry(
+            result=response,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
 
     # ── Record metrics ────────────────────────────────────────────────────────
     try:
@@ -259,14 +292,7 @@ async def natural_language_query(request: Request) -> dict:
     except Exception as e:
         logger.warning(f"Metrics recording failed: {e}")
 
-    return {
-        "query":        query,
-        "phi_detected": input_scan.phi_detected,
-        "clean_query":  clean_query,
-        "llm_summary":  summary,
-        "llm_provider": "ollama (on-premise)",
-        "model":        settings.ollama_model,
-    }
+    return response
 
 
 @router.get("/audit", summary="Recent audit log entries")
