@@ -6,18 +6,25 @@ Prevents repeated LLM calls for identical or seen inputs.
 TTL: 1 hour (configurable)
 Max: 1000 entries (oldest evicted when full)
 """
+# Remove the DetectionResult import entirely
+# Use TYPE_CHECKING to avoid circular import
+from __future__ import annotations
 import hashlib
+from typing import Any
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
-from app.compliance.phi_detector import DetectionResult
 from app.core.logging import get_logger
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.compliance.phi_detector import DetectionResult
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class CacheEntry:
-    result:     DetectionResult
+    result:     Any
     expires_at: datetime
     hits:       int = 0
 

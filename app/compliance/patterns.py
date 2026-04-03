@@ -2,6 +2,7 @@
 MCPilot — PHI Regex Patterns
 Multi-token patterns for spaCy EntityRuler.
 """
+import re
 
 # ── Military ranks (Indian Armed Forces + common) ─────────────────────────────
 MILITARY_RANKS = {
@@ -14,9 +15,8 @@ MILITARY_RANKS = {
 }
 
 # ── Badge/ID number pattern (any hyphenated number sequence) ─────────────────
-import re
 BADGE_REGEX = re.compile(
-    r'\b\d{2,6}[-/]\d{2,6}(?:[-/]\d{2,6})?\b'
+    r'\b\d{3,6}[-/]\d{2,6}(?:[-/]\d{2,6})?\b'
 )
 
 # ── Sector/channel/frequency references ──────────────────────────────────────
