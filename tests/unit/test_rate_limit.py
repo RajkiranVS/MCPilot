@@ -2,7 +2,6 @@
 MCPilot — Rate limiting + error handler tests
 """
 import pytest
-from fastapi.testclient import TestClient
 
 
 def test_validation_error_returns_422(client):
