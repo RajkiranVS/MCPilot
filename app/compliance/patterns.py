@@ -4,6 +4,17 @@ Comprehensive patterns for military-grade PII/CUI redaction.
 """
 import re
 
+# In patterns.py
+# In patterns.py
+LOCATION_NAMES = {
+    "karwar", "ambala", "pathankot", "jodhpur", "delhi", "mumbai",
+    "chennai", "kolkata", "bengaluru", "hyderabad", "pune", "jaipur",
+    "lucknow", "chandigarh", "udhampur", "leh", "siachen", "kargil",
+    "srinagar", "jammu", "dehradun", "nagpur", "bhopal", "agra",
+    "meerut", "secunderabad", "bangalore", "trivandrum", "coimbatore",
+    "vizag", "shimla", "portblair", "mussoorie",
+}
+
 # ── Military Ranks (Indian Armed Forces + Global) ─────────────────────────────
 MILITARY_RANKS = {
     "general", "major general", "lieutenant general", "major", "colonel", "lt col",
@@ -78,7 +89,7 @@ CALLSIGN_REGEX = re.compile(
     r'KILO|LIMA|MIKE|NOVEMBER|OSCAR|PAPA|QUEBEC|ROMEO|SIERRA|TANGO|'
     r'UNIFORM|VICTOR|WHISKEY|XRAY|YANKEE|ZULU|'
     r'SUNRAY|TIGER|NINER|GROUNDHOG|TACCOM|ROVER|RELAY|'
-    r'CONTROL|BASE|ZERO|MAIN'
+    r'CONTROL|ZERO|MAIN'
     r')(?:\s+\d{1,2}(?:[-/]\d{1,2})?)?\b',
     re.IGNORECASE
 )
@@ -235,3 +246,30 @@ REDACT_LABELS = {
     "BADGE", "RANK_NAME",
     "MILITARY_TIME", "CALLSIGN", "AREA",
 }
+
+# ── Standalone regex patterns (previously EntityRuler only) ──────────────────
+# These are now used by the Tier 1 regex scanner in phi_detector.py
+
+SSN_REGEX = re.compile(
+    r'\b\d{3}-\d{2}-\d{4}\b'
+)
+
+PHONE_REGEX = re.compile(
+    r'\b(?:\+91[\s-]?)?\d{10}\b|'           # Indian mobile: +91 9876543210
+    r'\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b|'     # US: 555-123-4567
+    r'\(\d{3}\)\s*\d{3}[-.\s]\d{4}\b'       # (555) 123-4567
+)
+
+EMAIL_REGEX = re.compile(
+    r'\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b'
+)
+
+MRN_REGEX = re.compile(
+    r'\bMRN[-:]?\d{6,10}\b|\bMRN\s+\d{6,10}\b',
+    re.IGNORECASE
+)
+
+DOB_REGEX = re.compile(
+    r'\b(?:dob|d\.o\.b|birthdate|born|birthday)[:\s\-]+\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b',
+    re.IGNORECASE
+)

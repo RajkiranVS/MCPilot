@@ -1,15 +1,19 @@
 """
 MCPilot — PHI Detection + Redaction Pipeline
-Core compliance engine for HIPAA PHI handling.
 
-Two main operations:
-  detect(text)  → returns list of PHI entities found
-  redact(text)  → returns text with PHI replaced by typed placeholders
+Architecture (clean, no patches):
+  Tier 1: Regex scan — deterministic, military-aware, fast (~2ms)
+          Handles: callsigns, service numbers, rank+name, coords,
+                   facilities, unit strength, military time, areas,
+                   SSN, phone, email, badge, DOB
+  Tier 2: spaCy NER on pre-masked text — plain names only (~20ms)
+          Handles: John Smith, Sarah Johnson, Jane Doe
+          Does NOT see already-detected spans → no misclassification
+  Tier 3: LLM via Ollama — novel patterns only (~4.7s, cached)
 
-Redaction format: [PERSON], [SSN], [MRN], [DOB], [PHONE], [EMAIL]
-
-Week 3: scan() and redact() will call AWS SageMaker endpoint
-instead of local spaCy model when ENVIRONMENT=production.
+Key insight: mask Tier 1 detections before running spaCy.
+spaCy never sees service numbers, callsigns, coordinates → never
+misclassifies them as PERSON/ORG/GPE.
 """
 import re
 import json
@@ -17,16 +21,14 @@ from dataclasses import dataclass
 from app.compliance.phi_model import get_phi_model
 from app.compliance.patterns import (
     REDACT_LABELS, PHI_LABELS, MILITARY_RANKS, BADGE_REGEX,
-    COORD_REGEX, UNIT_STRENGTH_REGEX, FACILITY_REGEX, MILITARY_TIME_REGEX,
-    CALLSIGN_REGEX, AREA_REGEX, RANK_NAME_REGEX, SERVICE_NUMBER_REGEX,
+    COORD_REGEX, UNIT_STRENGTH_REGEX, FACILITY_REGEX,
+    MILITARY_TIME_REGEX, CALLSIGN_REGEX, AREA_REGEX,
+    RANK_NAME_REGEX, SERVICE_NUMBER_REGEX,
+    SSN_REGEX, PHONE_REGEX, EMAIL_REGEX, DOB_REGEX, MRN_REGEX, LOCATION_NAMES,
 )
 from app.compliance.cache import pii_cache
 from app.core.logging import get_logger
 from app.core.llm import complete
-
-
-
-
 
 logger = get_logger(__name__)
 
@@ -34,12 +36,12 @@ logger = get_logger(__name__)
 @dataclass
 class PHIEntity:
     """A detected PHI entity with location and type information."""
-    text:       str    # original text
-    label:      str    # entity type: PERSON, SSN, MRN, etc.
-    start:      int    # character start position
-    end:        int    # character end position
-    redact:     bool   # whether this entity should be redacted
-    label_name: str    # human-readable label name
+    text:       str
+    label:      str
+    start:      int
+    end:        int
+    redact:     bool
+    label_name: str
 
 
 @dataclass
@@ -47,92 +49,189 @@ class DetectionResult:
     """Result of running PHI detection on a text."""
     original_text:  str
     entities:       list[PHIEntity]
-    phi_detected:   bool          # True if any redactable PHI found
-    redacted_text:  str           # text with PHI replaced
+    phi_detected:   bool
+    redacted_text:  str
     entity_count:   int
     redacted_count: int
 
 
-def novelty_check(text: str, spacy_result: DetectionResult) -> bool:
+# ── Tier 1: Regex scan ────────────────────────────────────────────────────────
+
+def _regex_scan(text: str) -> list[PHIEntity]:
     """
-    Decide whether to escalate to LLM.
-    Returns True only if text likely contains PII that Tier 1+2 missed.
-
-    Checks:
-    1. Military rank words present but no PERSON/RANK_NAME entity found
-    2. Badge-like number patterns present but no BADGE entity found
-    3. Text is long enough to potentially contain PII (>3 words)
+    Deterministic regex scan — runs first, highest priority.
+    Order matters: more specific patterns before general ones.
     """
-    if len(text.split()) < 3:
-        return False  # too short to contain novel PII
+    covered: set[tuple[int, int]] = set()
+    entities: list[PHIEntity] = []
 
-    text_lower = text.lower()
-    words = set(text_lower.split())
-    found_labels = {e.label for e in spacy_result.entities}
-
-    # Check 1 — rank words without person detection
-    rank_present = bool(words & MILITARY_RANKS)
-    person_found = bool(found_labels & {"PERSON", "RANK_NAME"})
-    if rank_present and not person_found:
-        logger.debug("Novelty check: rank word found without PERSON entity — escalating to LLM")
-        return True
-
-    # Check 2 — badge-like numbers without BADGE/SSN detection
-    badge_matches = BADGE_REGEX.findall(text)
-    badge_found   = bool(found_labels & {"BADGE", "SSN", "MRN"})
-    if badge_matches and not badge_found:
-        logger.debug("Novelty check: badge pattern found without entity — escalating to LLM")
-        return True
-
-    return False
-
-
-def detect(text: str) -> DetectionResult:
-    """
-    Scan text for PHI entities.
-    Returns DetectionResult with all detected entities and redacted text.
-
-    Args:
-        text: Input text to scan
-
-    Returns:
-        DetectionResult with:
-          - entities: all PHI found (type, position, whether to redact)
-          - redacted_text: text safe to pass downstream
-          - phi_detected: True if any redactable PHI was found
-    """
-    if not text or not text.strip():
-        return DetectionResult(
-            original_text=text,
-            entities=[],
-            phi_detected=False,
-            redacted_text=text,
-            entity_count=0,
-            redacted_count=0,
-        )
-
-    nlp = get_phi_model()
-    doc = nlp(text)
-
-    entities = []
-    for ent in doc.ents:
-        should_redact = ent.label_ in REDACT_LABELS
+    def add(m: re.Match, label: str) -> None:
+        start, end = m.start(), m.end()
+        # Skip if overlaps with already-detected span
+        if any(s <= start < e or s < end <= e for s, e in covered):
+            return
         entities.append(PHIEntity(
-            text=ent.text,
+            text=m.group(),
+            label=label,
+            start=start,
+            end=end,
+            redact=label in REDACT_LABELS,
+            label_name=PHI_LABELS.get(label, label),
+        ))
+        covered.add((start, end))
+
+    # Priority order: most specific first
+    for pattern, label in [
+        (CALLSIGN_REGEX,       "CALLSIGN"),
+        (SERVICE_NUMBER_REGEX, "SERVICE_NO"),
+        (RANK_NAME_REGEX,      "RANK_NAME"),
+        (COORD_REGEX,          "COORD"),
+        (FACILITY_REGEX,       "FACILITY"),
+        (UNIT_STRENGTH_REGEX,  "UNIT_STRENGTH"),
+        (MILITARY_TIME_REGEX,  "MILITARY_TIME"),
+        (AREA_REGEX,           "AREA"),
+        (SSN_REGEX,            "SSN"),
+        (MRN_REGEX,            "MRN"),
+        (PHONE_REGEX,          "PHONE"),
+        (EMAIL_REGEX,          "EMAIL"),
+        (DOB_REGEX,            "DOB"),
+        (BADGE_REGEX,          "BADGE"),
+    ]:
+        for m in pattern.finditer(text):
+            add(m, label)
+
+    return entities
+
+
+# ── Tier 2: spaCy on masked text — plain names only ──────────────────────────
+
+def _mask_spans(text: str, entities: list[PHIEntity]) -> str:
+    """
+    Replace detected spans with same-length placeholder before spaCy.
+    spaCy never sees service numbers, callsigns, coords → no misclassification.
+    Uses a non-alphabetic character so spaCy doesn't form entities across gaps.
+    """
+    chars = list(text)
+    for e in entities:
+        for i in range(e.start, e.end):
+            chars[i] = '░'
+    return ''.join(chars)
+
+
+def _spacy_scan(masked_text: str, original_text: str,
+                covered: set[tuple[int, int]]) -> list[PHIEntity]:
+    """
+    Run spaCy NER on masked text.
+    Accept PERSON and DOB entities — everything else handled by regex.
+    """
+    nlp = get_phi_model()
+    doc = nlp(masked_text)
+    entities = []
+
+    SPACY_ACCEPT = {"PERSON", "DOB"}
+    PROWORDS = {
+    "roger", "wilco", "over", "out", "wait-out",
+    "say", "again", "figures", "sunray", "tiger", "niner", "groundhog", "taccom",
+    "rover", "relay", "control", "zero", "main",
+    }
+
+    for ent in doc.ents:
+        if ent.label_ not in SPACY_ACCEPT:
+            continue
+        start, end = ent.start_char, ent.end_char
+        original_span = original_text[start:end]
+        if ent.label_ == "PERSON" and original_span.lower() in LOCATION_NAMES:
+            continue
+        if ent.label_ == "PERSON" and original_span.lower() in PROWORDS:
+            continue
+        if any(s <= start < e or s < end <= e for s, e in covered):
+            continue
+        original_span = original_text[start:end]
+        if original_span.count('░') > len(original_span) // 2:
+            continue
+        if ent.label_ == "PERSON" and len(original_span.strip()) < 4:
+            continue
+        entities.append(PHIEntity(
+            text=original_span,
             label=ent.label_,
-            start=ent.start_char,
-            end=ent.end_char,
-            redact=should_redact,
+            start=start,
+            end=end,
+            redact=ent.label_ in REDACT_LABELS,
             label_name=PHI_LABELS.get(ent.label_, ent.label_),
         ))
 
-    # ── Tier 1.5: regex sweep for tactical patterns ───────────────────────
-    entities = _fix_service_number_misclassification(entities)
-    entities = _scan_regex_patterns(text, entities)
-    entities = _merge_rank_names(text, entities)
-    entities = _remove_callsign_in_facility(entities)
+    return entities
 
-    redactable = [e for e in entities if e.redact]
+def _extend_facility_with_location(text: str, entities: list[PHIEntity]) -> list[PHIEntity]:
+    """
+    Extend FACILITY entities to include adjacent city/location names.
+    e.g. 'Naval Base Karwar' → extend to include 'Karwar'
+         'Ambala Airbase' → extend to include 'Ambala'
+    """
+    result = []
+    facility_indices = {i for i, e in enumerate(entities) if e.label == "FACILITY"}
+
+    for i, e in enumerate(entities):
+        if e.label != "FACILITY":
+            result.append(e)
+            continue
+
+        start, end = e.start, e.end
+
+        # Check word AFTER facility (e.g. Naval Base → Karwar)
+        remaining = text[end:]
+        after_match = re.match(r'^[\s,]+(\w+)', remaining)
+        if after_match:
+            word = after_match.group(1)
+            if word.lower() in LOCATION_NAMES:
+                end = end + after_match.end()
+
+        # Check word BEFORE facility (e.g. Ambala → Airbase)
+        preceding = text[:start]
+        before_match = re.search(r'(\w+)\s*$', preceding)
+        if before_match:
+            word = before_match.group(1)
+            if word.lower() in LOCATION_NAMES:
+                start = before_match.start()
+
+        result.append(PHIEntity(
+            text=text[start:end],
+            label="FACILITY",
+            start=start,
+            end=end,
+            redact=True,
+            label_name="Military Facility",
+        ))
+
+    return result
+
+
+# ── Main detect() ─────────────────────────────────────────────────────────────
+
+def detect(text: str) -> DetectionResult:
+    """
+    Scan text for PHI/PII entities.
+    Clean two-tier pipeline: regex first, spaCy on masked text second.
+    """
+    if not text or not text.strip():
+        return DetectionResult(
+            original_text=text, entities=[],
+            phi_detected=False, redacted_text=text,
+            entity_count=0, redacted_count=0,
+        )
+
+    # ── Tier 1: Regex ─────────────────────────────────────────────────────
+    entities = _regex_scan(text)
+    entities = _extend_facility_with_location(text, entities)
+    covered  = {(e.start, e.end) for e in entities}
+
+    # ── Tier 2: spaCy on masked text ──────────────────────────────────────
+    masked       = _mask_spans(text, entities)
+    spacy_ents   = _spacy_scan(masked, text, covered)
+    entities     = entities + spacy_ents
+
+    # ── Redact ────────────────────────────────────────────────────────────
+    redactable   = [e for e in entities if e.redact]
     redacted_text = _redact_entities(text, redactable)
 
     result = DetectionResult(
@@ -153,98 +252,22 @@ def detect(text: str) -> DetectionResult:
     return result
 
 
-def _scan_regex_patterns(text: str, entities: list[PHIEntity]) -> list[PHIEntity]:
-    """
-    Tier 1.5 — regex sweep for tactical patterns not caught by spaCy NER.
-    Covers: GPS/MGRS coordinates, unit strength counts, military facilities.
-    Runs after spaCy so it only adds entities not already detected.
-    NON_PII labels are excluded from coverage so regex can override them.
-    """
-    NON_PII_SPACY_LABELS = {
-        "CARDINAL", "ORDINAL", "QUANTITY", "TIME",
-        "PRODUCT", "GPE", "DATE", "ZIP",
-    }
-    covered = {
-        (e.start, e.end) for e in entities
-        if e.label not in NON_PII_SPACY_LABELS
-    }
-    new_entities = [
-        e for e in entities
-        if e.label not in NON_PII_SPACY_LABELS
-    ]
-
-    for pattern, label in [
-        (SERVICE_NUMBER_REGEX, "SERVICE_NO"),
-        (RANK_NAME_REGEX,      "RANK_NAME"),
-        (COORD_REGEX,          "COORD"),
-        (UNIT_STRENGTH_REGEX,  "UNIT_STRENGTH"),
-        (FACILITY_REGEX,       "FACILITY"),
-        (MILITARY_TIME_REGEX,  "MILITARY_TIME"),
-        (CALLSIGN_REGEX,       "CALLSIGN"),
-        (AREA_REGEX,           "AREA"),
-    ]:
-        for m in pattern.finditer(text):
-            already = any(
-                s <= m.start() < e or s < m.end() <= e
-                for s, e in covered
-            )
-            if not already:
-                new_entities.append(PHIEntity(
-                    text=m.group(),
-                    label=label,
-                    start=m.start(),
-                    end=m.end(),
-                    redact=True,
-                    label_name=PHI_LABELS.get(label, label),
-                ))
-                covered.add((m.start(), m.end()))
-
-    # ── Deduplicate — keep stronger label when regex and spaCy overlap ────
-    regex_covered = {
-        (e.start, e.end) for e in new_entities
-        if e.label in {
-            "CALLSIGN", "SERVICE_NO", "RANK_NAME", "COORD",
-            "UNIT_STRENGTH", "FACILITY", "MILITARY_TIME", "DOB",
-            "AREA", "BADGE",
-        }
-    }
-    final_entities = [
-        e for e in new_entities
-        if (e.start, e.end) not in regex_covered
-        or e.label in {
-            "CALLSIGN", "SERVICE_NO", "RANK_NAME", "COORD",
-            "UNIT_STRENGTH", "FACILITY", "MILITARY_TIME", "DOB",
-            "AREA", "BADGE",
-        }
-    ]
-
-    return final_entities
-
 def _redact_entities(text: str, entities: list[PHIEntity]) -> str:
-    """
-    Replace PHI entities with typed placeholders.
-    Works from end to start to preserve character positions.
-    """
-    # Sort by start position descending — replace from end to start
-    sorted_entities = sorted(entities, key=lambda e: e.start, reverse=True)
-
+    """Replace PHI entities with typed placeholders, end-to-start."""
+    sorted_ents = sorted(entities, key=lambda e: e.start, reverse=True)
     result = text
-    for entity in sorted_entities:
+    for entity in sorted_ents:
         placeholder = f"[{entity.label}]"
         result = result[:entity.start] + placeholder + result[entity.end:]
-
     return result
 
 
+# ── Legacy helpers (kept for scan_dict / scan_list compatibility) ─────────────
+
 def scan_dict(data: dict) -> tuple[dict, bool]:
-    """
-    Recursively scan a dictionary for PHI in string values.
-    Returns (redacted_dict, phi_was_detected).
-    Used to scan MCP tool call parameters and responses.
-    """
+    """Recursively scan a dictionary for PHI in string values."""
     redacted = {}
     any_phi = False
-
     for key, value in data.items():
         if isinstance(value, str):
             result = detect(value)
@@ -259,7 +282,6 @@ def scan_dict(data: dict) -> tuple[dict, bool]:
             any_phi = any_phi or child_phi
         else:
             redacted[key] = value
-
     return redacted, any_phi
 
 
@@ -267,7 +289,6 @@ def scan_list(data: list) -> tuple[list, bool]:
     """Recursively scan a list for PHI in string values."""
     redacted = []
     any_phi = False
-
     for item in data:
         if isinstance(item, str):
             result = detect(item)
@@ -280,138 +301,58 @@ def scan_list(data: list) -> tuple[list, bool]:
             any_phi = any_phi or child_phi
         else:
             redacted.append(item)
-
     return redacted, any_phi
 
-def _merge_rank_names(text: str, entities: list[PHIEntity]) -> list[PHIEntity]:
-    """
-    Merge military rank words immediately preceding a PERSON entity
-    into a single RANK_NAME entity.
-    Also captures middle names left between rank and service number.
-    """
-    result = []
 
-    for i, e in enumerate(entities):
-        if e.label == "PERSON":
-            prefix_text  = text[:e.start].rstrip()
-            prefix_lower = prefix_text.lower()
+# ── Novelty check (for Tier 3 LLM escalation) ────────────────────────────────
 
-            matched_rank = ""
-            for rank in sorted(MILITARY_RANKS, key=len, reverse=True):
-                if prefix_lower.endswith(rank):
-                    matched_rank = rank
-                    break
-
-            if matched_rank:
-                rank_start = prefix_lower.rfind(matched_rank)
-                end = e.end
-                # Extend to capture additional name tokens after PERSON entity
-                remaining = text[end:]
-                extra = re.match(r'^(\s+[A-Z][a-z]+)+', remaining)
-                if extra:
-                    extension_end = end + len(extra.group())
-                    entity_starts = {ent.start for ent in entities if ent != e}
-                    if not any(end < s <= extension_end for s in entity_starts):
-                        end = extension_end
-                full_text = text[rank_start:end]
-                result.append(PHIEntity(
-                    text=full_text,
-                    label="RANK_NAME",
-                    start=rank_start,
-                    end=end,
-                    redact=True,
-                    label_name="Military Rank + Name",
-                ))
-            else:
-                result.append(e)
-        else:
-            result.append(e)
-
-    return result
-
-def _remove_callsign_in_facility(entities: list[PHIEntity]) -> list[PHIEntity]:
+def novelty_check(text: str, tier12_result: DetectionResult) -> bool:
     """
-    Remove CALLSIGN entities that fall inside OR immediately follow a FACILITY span.
-    e.g. 'Forward Operating Base Tango' — Tango is the facility name, not a callsign.
+    Decide whether to escalate to LLM.
+    Only escalates if Tier 1+2 likely missed something.
     """
-    facility_spans = [
-        (e.start, e.end) for e in entities if e.label == "FACILITY"
-    ]
-    result = []
-    for e in entities:
-        if e.label == "CALLSIGN":
-            # Inside facility span
-            inside = any(
-                fs <= e.start and e.end <= fe
-                for fs, fe in facility_spans
-            )
-            # Immediately after facility span (within 1 space)
-            adjacent = any(
-                fe <= e.start <= fe + 1
-                for fs, fe in facility_spans
-            )
-            if inside or adjacent:
-                # Convert to FACILITY instead of dropping
-                result.append(PHIEntity(
-                    text=e.text,
-                    label="FACILITY",
-                    start=e.start,
-                    end=e.end,
-                    redact=True,
-                    label_name="Military Facility",
-                ))
-            else:
-                result.append(e)
-        else:
-            result.append(e)
-    return result
+    if len(text.split()) < 3:
+        return False
 
-def _fix_service_number_misclassification(
-    entities: list[PHIEntity],
-) -> list[PHIEntity]:
-    """
-    Reclassify PERSON entities whose text matches SERVICE_NUMBER_REGEX.
-    spaCy sometimes tags IC-78241H style tokens as PERSON.
-    """
-    result = []
-    for e in entities:
-        if e.label == "PERSON" and SERVICE_NUMBER_REGEX.fullmatch(e.text.strip()):
-            result.append(PHIEntity(
-                text=e.text,
-                label="SERVICE_NO",
-                start=e.start,
-                end=e.end,
-                redact=True,
-                label_name="Military Service Number",
-            ))
-        else:
-            result.append(e)
-    return result
+    found_labels = {e.label for e in tier12_result.entities}
+
+    # Rank present but no rank+name detected
+    words = set(text.lower().split())
+    rank_present = bool(words & MILITARY_RANKS)
+    person_found = bool(found_labels & {"PERSON", "RANK_NAME"})
+    if rank_present and not person_found:
+        return True
+
+    # Badge-like numbers not caught
+    badge_matches = BADGE_REGEX.findall(text)
+    badge_found   = bool(found_labels & {"BADGE", "SSN", "MRN", "SERVICE_NO"})
+    if badge_matches and not badge_found:
+        return True
+
+    return False
+
+
+# ── Tier 3: LLM detection ─────────────────────────────────────────────────────
 
 async def detect_with_llm(text: str) -> DetectionResult:
     """
     Tiered PII detection:
-    Tier 1+2: spaCy (fast, <30ms)
-    Tier 3:   LLM via Ollama (only if novelty_check passes, ~3.5s)
+    Tier 1+2: regex + spaCy (fast, <50ms)
+    Tier 3:   LLM via Ollama (only if novelty_check passes, ~4.7s)
     Cache:    LLM results cached 1 hour
     """
+    tier12_result = detect(text)
 
-    # ── Tier 1+2: spaCy ───────────────────────────────────────────────────────
-    spacy_result = detect(text)
+    if not novelty_check(text, tier12_result):
+        logger.debug(f"Tier 1+2 sufficient | entities={tier12_result.entity_count}")
+        return tier12_result
 
-    # ── Novelty check ─────────────────────────────────────────────────────────
-    if not novelty_check(text, spacy_result):
-        logger.debug(f"PII detection: spaCy sufficient, skipping LLM | entities={spacy_result.entity_count}")
-        return spacy_result
-
-    # ── Check cache before calling LLM ────────────────────────────────────────
     cached = pii_cache.get(text)
     if cached:
-        logger.debug("PII detection: LLM cache hit")
+        logger.debug("LLM cache hit")
         return cached
 
-    # ── Tier 3: LLM ───────────────────────────────────────────────────────────
-    logger.info("PII detection: escalating to LLM (novel pattern detected)")
+    logger.info("Escalating to LLM (novel pattern detected)")
 
     prompt = (
         f'You are a PII redaction system for defence communications.\n\n'
@@ -419,18 +360,12 @@ async def detect_with_llm(text: str) -> DetectionResult:
         f'Identify ALL sensitive personal identifiers. Return ONLY a JSON array:\n'
         f'[{{"text": "exact substring to redact", "label": "LABEL"}}]\n\n'
         f'Detection rules:\n'
-        f'- Military rank + name together as ONE entity → label: RANK_NAME\n'
-        f'  Examples: "Major Gaurav", "General Rastogi", "Colonel Singh"\n'
-        f'  ALWAYS include the rank word WITH the name as a single entity\n'
-        f'- If multiple people appear, identify EACH one separately\n'
+        f'- Military rank + name → label: RANK_NAME\n'
         f'- Full name without rank → label: PERSON\n'
-        f'- Any ID or badge number in ANY format → label: BADGE\n'
+        f'- Any ID or badge number → label: BADGE\n'
         f'- Phone numbers → label: PHONE\n'
         f'- Email addresses → label: EMAIL\n'
-        f'- SSN (XXX-XX-XXXX format only) → label: SSN\n'
-        f'- CRITICAL: Never split a rank+name — "Major Aryan" is ONE entity\n'
-        f'- CRITICAL: Find ALL people in the text, not just the first one\n'
-        f'- Choose ONE label per entity — never combine with pipe or slash\n'
+        f'- SSN (XXX-XX-XXXX) → label: SSN\n'
         f'- Return [] if no PII found\n'
         f'- Return ONLY valid JSON array, no explanation'
     )
@@ -443,15 +378,12 @@ async def detect_with_llm(text: str) -> DetectionResult:
         )
         match = re.search(r'\[.*?\]', response, re.DOTALL)
         if not match:
-            return spacy_result
+            return tier12_result
 
         entities_raw = json.loads(match.group())
         if not entities_raw:
-            return spacy_result
+            return tier12_result
 
-        # ── Use LLM result directly, don't merge with spaCy ──────────────────
-        # LLM has full context — its entities are more accurate than spaCy
-        # for military rank+name combinations and novel badge formats
         redacted = text
         entities = []
         positioned = []
@@ -461,7 +393,6 @@ async def detect_with_llm(text: str) -> DetectionResult:
             if idx >= 0:
                 positioned.append((idx, idx + len(e["text"]), e["text"], e["label"]))
 
-        # Deduplicate overlaps — keep longer entity
         positioned.sort(key=lambda x: x[0])
         deduped = []
         for item in positioned:
@@ -471,21 +402,14 @@ async def detect_with_llm(text: str) -> DetectionResult:
             else:
                 deduped.append(item)
 
-        # Also add spaCy entities not covered by LLM
-        for spacy_ent in spacy_result.entities:
-            if not spacy_ent.redact:
+        # Add Tier 1+2 entities not covered by LLM
+        llm_covered = {(s, e) for s, e, _, _ in deduped}
+        for ent in tier12_result.entities:
+            if not ent.redact:
                 continue
-            covered = any(
-                s <= spacy_ent.start < e
-                for s, e, _, _ in deduped
-            )
-            if not covered:
-                deduped.append((
-                    spacy_ent.start, spacy_ent.end,
-                    spacy_ent.text, spacy_ent.label
-                ))
+            if not any(s <= ent.start < e for s, e in llm_covered):
+                deduped.append((ent.start, ent.end, ent.text, ent.label))
 
-        # Sort and redact end-to-start
         deduped.sort(key=lambda x: x[0], reverse=True)
         for start, end, orig_text, label in deduped:
             redacted = redacted[:start] + f"[{label}]" + redacted[end:]
@@ -508,5 +432,5 @@ async def detect_with_llm(text: str) -> DetectionResult:
         return result
 
     except Exception as e:
-        logger.warning(f"LLM PII detection failed, using spaCy result: {e}")
-        return spacy_result
+        logger.warning(f"LLM detection failed, using Tier 1+2 result: {e}")
+        return tier12_result
