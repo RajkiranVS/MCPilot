@@ -71,7 +71,12 @@ FACILITY_KEYWORDS = {
     "border post", "bop", "lac", "loc", "ib",
     "check post", "vcp", "ammunition point", "ammunition depot",
     "observation post", "supply depot", "forward base", "forward position",
-    "rv", "rendezvous", "ap",
+    "rv", "rendezvous", "ap", "international border",
+    "line of control",
+    "line of actual control",
+    "actual ground position line", "agpl",
+    "forward line of own troops", "flot",
+    "zero line", "zl", "northern most point", "nmp", "point of actual control", "pac",
 }
 FACILITY_REGEX = re.compile(
     r'\b(?:' + '|'.join(
