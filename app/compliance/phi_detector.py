@@ -82,11 +82,10 @@ def _regex_scan(text: str) -> list[PHIEntity]:
 
     # Priority order: most specific first
     for pattern, label in [
-        (CALLSIGN_REGEX,       "CALLSIGN"),
         (SERVICE_NUMBER_REGEX, "SERVICE_NO"),
         (RANK_NAME_REGEX,      "RANK_NAME"),
         (COORD_REGEX,          "COORD"),
-        (FACILITY_REGEX,       "FACILITY"),
+        (FACILITY_REGEX,       "FACILITY"),      # before CALLSIGN
         (UNIT_STRENGTH_REGEX,  "UNIT_STRENGTH"),
         (MILITARY_TIME_REGEX,  "MILITARY_TIME"),
         (AREA_REGEX,           "AREA"),
@@ -97,6 +96,7 @@ def _regex_scan(text: str) -> list[PHIEntity]:
         (EMAIL_REGEX,          "EMAIL"),
         (DOB_REGEX,            "DOB"),
         (BADGE_REGEX,          "BADGE"),
+        (CALLSIGN_REGEX,       "CALLSIGN"),      # after FACILITY
     ]:
         # Special handling for badge context — only redact the number not "badge"
         if pattern is BADGE_CONTEXT_REGEX:
@@ -113,7 +113,7 @@ def _regex_scan(text: str) -> list[PHIEntity]:
                     ))
                     covered.add((start, end))
             continue
-        
+
         for m in pattern.finditer(text):
             add(m, label)
 
