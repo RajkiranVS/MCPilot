@@ -55,8 +55,9 @@ COORD_REGEX = re.compile(
 
 # ── Unit strength & Tactical Counts ──────────────────────────────────────────
 UNIT_STRENGTH_REGEX = re.compile(
-    r'\b\d+\s*(?:personnel|soldiers|troops|men|women|officers|jawans|units|'
-    r'vehicles|platoon|company|battalion|bn|bde)\b',
+    r'\b\d+\s+(?:\w+\s+)?(?:personnel|soldiers|troops|men|women|officers|jawans|units|'
+    r'vehicles|platoons?|companies|company|battalions?|bn|bde|'
+    r'commandos?|rangers?|paratroopers?)\b',
     re.IGNORECASE
 )
 
