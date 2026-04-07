@@ -23,7 +23,7 @@
   textarea { flex: 1; background: #060c18; border: 1px solid #2a3550; color: #e8d5a3; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; resize: none; height: 80px; outline: none; }
   textarea:focus { border-color: #f5a623; }
   textarea::placeholder { color: #3a4a6a; }
-  .btn { background: #f5a623; color: #0a0f1e; border: none; padding: 0 24px; font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase; }
+  .btn { background: #f5a623; color: #0a0f1e; border: none; padding: 0 20px; font-family: 'Courier New', monospace; font-size: 11px; font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase; line-height: 1.4; min-width: 100px; }
   .btn:hover { background: #e09010; }
   .btn:disabled { background: #3a4020; color: #6a6040; cursor: not-allowed; }
   .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
@@ -41,10 +41,12 @@
   .log-time { color: #3a6aaa; min-width: 80px; }
   .log-msg { color: #8a9ab8; flex: 1; }
   .log-tag { font-size: 10px; padding: 1px 6px; white-space: nowrap; }
-  .tag-ok { background: #1a3a1a; color: #5aaa5a; border: 1px solid #2a5a2a; }
-  .tag-PII { background: #3a1a1a; color: #ff8888; border: 1px solid #6a2a2a; }
-  .tag-info { background: #1a2a3a; color: #6a9acc; border: 1px solid #2a4a6a; }
-  .tag-err { background: #4a1a1a; color: #ff6666; border: 1px solid #8a2a2a; }
+  .tag-ok    { background: #1a3a1a; color: #5aaa5a; border: 1px solid #2a5a2a; }
+  .tag-PII   { background: #3a1a1a; color: #ff8888; border: 1px solid #6a2a2a; }
+  .tag-info  { background: #1a2a3a; color: #6a9acc; border: 1px solid #2a4a6a; }
+  .tag-err   { background: #4a1a1a; color: #ff6666; border: 1px solid #8a2a2a; }
+  .tag-roger { background: #1a2a1a; color: #66cc66; border: 1px solid #336633; }
+  .tag-wilco { background: #2a1a0a; color: #f5a623; border: 1px solid #7a5010; }
   .server-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #111d33; font-size: 12px; }
   .server-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .dot-on { background: #2ecc71; }
@@ -55,11 +57,13 @@
   .metric { background: #060c18; border: 1px solid #2a3550; padding: 10px; text-align: center; }
   .metric-val { font-size: 24px; font-weight: 700; color: #f5a623; }
   .metric-label { font-size: 9px; color: #5a6a8a; letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; }
-  .PII-status-row { margin-top: 10px; display: flex; align-items: center; gap: 12px; }
+  .PII-status-row { margin-top: 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .scan-label { font-size: 11px; color: #f5a623; letter-spacing: 1px; }
   .blink { animation: blink 0.8s step-end infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
   .provider-badge { font-size: 10px; color: #3a6aaa; letter-spacing: 1px; margin-bottom: 8px; }
+  .vp-bar { background: #060c18; border: 1px solid #1e2d4a; border-left: 3px solid #3a6aaa; padding: 7px 12px; margin-top: 10px; font-size: 10px; color: #5a6a8a; letter-spacing: 0.5px; display: flex; gap: 20px; flex-wrap: wrap; }
+  .vp-bar b { color: #f5a623; }
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: #060c18; }
   ::-webkit-scrollbar-thumb { background: #2a3550; }
@@ -82,18 +86,26 @@
 
   <div class="grid">
 
-    <!-- Query Input -->
+    <!-- Command Transmission -->
     <div class="panel full">
       <div class="panel-title">◈ Command Transmission</div>
       <div class="input-row">
-        <textarea id="queryInput" placeholder="Enter command query... e.g. Operator John Smith badge 123-45-6789 requesting access to sector 4 frequency logs"></textarea>
-        <button class="btn" id="submitBtn" onclick="submitQuery()">TRANSMIT</button>
+        <textarea id="queryInput" placeholder="Enter transmission — OVER&#10;e.g. Major Ram Prasad Sharma badge 123-45-67-890 requesting sector-4 frequency logs — OVER"></textarea>
+        <button class="btn" id="submitBtn" onclick="submitQuery()">TRANSMIT<br>— OVER</button>
       </div>
       <div class="PII-status-row">
-        <div id="PIIStatus" class="threat-none">◈ PII STATUS: CLEAR</div>
+        <div id="PIIStatus" class="threat-none">◈ TRANSMISSION: CLEAR — OVER</div>
         <div id="scanLabel" class="scan-label"></div>
       </div>
       <div class="hint">Ctrl+Enter to transmit</div>
+      <!-- VP Quick Reference -->
+      <div class="vp-bar">
+        <span><b>ROGER</b> — Received</span>
+        <span><b>WILCO</b> — Received, understood, will comply</span>
+        <span><b>SAY AGAIN</b> — Repeat last (never say "Repeat")</span>
+        <span><b>WAIT-OUT</b> — Stand by</span>
+        <span><b>OVER</b> — Awaiting reply</span>
+      </div>
     </div>
 
     <!-- Redaction Analysis -->
@@ -101,11 +113,11 @@
       <div class="panel-title">◈ Redaction Analysis</div>
       <div class="compare">
         <div>
-          <div class="compare-label">Original Input</div>
+          <div class="compare-label">Original Transmission</div>
           <div class="compare-box original-text" id="originalBox">Awaiting transmission...</div>
         </div>
         <div>
-          <div class="compare-label">Sanitised Output</div>
+          <div class="compare-label">Sanitised Output — WILCO</div>
           <div class="compare-box redacted-text" id="redactedBox">Awaiting transmission...</div>
         </div>
       </div>
@@ -159,7 +171,7 @@
       <div class="log-feed" id="logFeed">
         <div class="log-entry">
           <div class="log-time">--:--:--</div>
-          <div class="log-msg">MCPilot Tactical Dashboard initialised. System ready.</div>
+          <div class="log-msg">MCPilot Tactical Dashboard initialised. System ready — OVER</div>
           <div class="log-tag tag-info">INIT</div>
         </div>
       </div>
@@ -173,12 +185,8 @@
   const API_KEY  = 'mcpilot-dev-key-001';
   let totalCalls = 0, PIIDetected = 0;
 
-  function now() {
-    return new Date().toTimeString().slice(0, 8);
-  }
-  setInterval(() => {
-    document.getElementById('clock').textContent = now();
-  }, 1000);
+  function now() { return new Date().toTimeString().slice(0, 8); }
+  setInterval(() => { document.getElementById('clock').textContent = now(); }, 1000);
 
   function addLog(msg, tag, cls) {
     const feed = document.getElementById('logFeed');
@@ -191,34 +199,30 @@
 
   async function fetchAuditLog() {
     try {
-        const res = await fetch(`${API_BASE}/gateway/audit?limit=10`, {
-            headers: { 'X-API-Key': API_KEY }
-        });
-        const data = await res.json();
-        const feed = document.getElementById('logFeed');
-        // Remove previously fetched DB records (marked with data-db="true")
-        feed.querySelectorAll('[data-db="true"]').forEach(el => el.remove());
-        // Prepend fresh DB records above static init logs
-        const fragment = document.createDocumentFragment();
-        data.records.forEach(r => {
+      const res = await fetch(`${API_BASE}/gateway/audit?limit=10`, {
+        headers: { 'X-API-Key': API_KEY }
+      });
+      const data = await res.json();
+      const feed = document.getElementById('logFeed');
+      feed.querySelectorAll('[data-db="true"]').forEach(el => el.remove());
+      const fragment = document.createDocumentFragment();
+      data.records.forEach(r => {
         const el = document.createElement('div');
         el.className = 'log-entry';
         el.setAttribute('data-db', 'true');
         const piiTag = r.pii_detected
-            ? '<div class="log-tag tag-PII">PII</div>'
-            : '<div class="log-tag tag-ok">OK</div>';
+          ? '<div class="log-tag tag-PII">PII</div>'
+          : '<div class="log-tag tag-ok">OK</div>';
         el.innerHTML = `
-            <div class="log-time">${new Date(r.created_at).toLocaleTimeString('en-GB')}</div>
-            <div class="log-msg">${r.server_id}.${r.tool_name} | ${r.tenant_id} | hash:${r.record_hash}</div>
-            ${piiTag}
+          <div class="log-time">${new Date(r.created_at).toLocaleTimeString('en-GB')}</div>
+          <div class="log-msg">${r.server_id}.${r.tool_name} | ${r.tenant_id} | hash:${r.record_hash}</div>
+          ${piiTag}
         `;
         fragment.appendChild(el);
-    });
-    feed.insertBefore(fragment, feed.firstChild);
-    } catch(e) {
-        // silently fail — gateway may not be running
-    }
-}
+      });
+      feed.insertBefore(fragment, feed.firstChild);
+    } catch(e) {}
+  }
 
   function highlightPII(text) {
     return text
@@ -230,22 +234,22 @@
       .replace(/\[DOB\]/g,       '<span class="PII-tag">[DOB]</span>')
       .replace(/\[RANK_NAME\]/g, '<span class="PII-tag">[RANK_NAME]</span>')
       .replace(/\[BADGE\]/g,     '<span class="PII-tag">[BADGE]</span>');
-}
+  }
 
   async function submitQuery() {
-    const input  = document.getElementById('queryInput');
-    const btn    = document.getElementById('submitBtn');
-    const query  = input.value.trim();
+    const input = document.getElementById('queryInput');
+    const btn   = document.getElementById('submitBtn');
+    const query = input.value.trim();
     if (!query) return;
 
-    btn.disabled = true;
-    btn.textContent = 'SCANNING...';
-    document.getElementById('scanLabel').innerHTML = '<span class="blink">◈ SCANNING FOR PII...</span>';
+    btn.disabled   = true;
+    btn.innerHTML  = 'WAIT-OUT...';
+    document.getElementById('scanLabel').innerHTML = '<span class="blink">◈ SCANNING TRANSMISSION...</span>';
     document.getElementById('originalBox').textContent = query;
-    document.getElementById('redactedBox').innerHTML  = '<span class="blink">processing...</span>';
-    document.getElementById('llmBox').innerHTML       = '<span class="blink">querying local model...</span>';
+    document.getElementById('redactedBox').innerHTML   = '<span class="blink">processing...</span>';
+    document.getElementById('llmBox').innerHTML        = '<span class="blink">querying local model...</span>';
 
-    addLog(`Transmission received: "${query.slice(0,55)}..."`, 'RX', 'tag-info');
+    addLog(`Transmission received — ROGER: "${query.slice(0,55)}..."`, 'ROGER', 'tag-roger');
 
     const t0 = Date.now();
     try {
@@ -267,17 +271,17 @@
 
       if (data.phi_detected) {
         PIIDetected++;
-        document.getElementById('PIICount').textContent    = PIIDetected;
-        document.getElementById('PIIStatus').className     = 'threat-high';
-        document.getElementById('PIIStatus').textContent   = '◈ PII STATUS: DETECTED — REDACTED';
+        document.getElementById('PIICount').textContent  = PIIDetected;
+        document.getElementById('PIIStatus').className   = 'threat-high';
+        document.getElementById('PIIStatus').textContent = '◈ TRANSMISSION: REDACTED — WILCO';
         addLog(`PII detected and redacted | latency ${ms}ms`, 'PII', 'tag-PII');
-        addLog('Redacted query dispatched to downstream system', 'TX', 'tag-ok');
+        addLog('WILCO — Redacted transmission forwarded to downstream system', 'WILCO', 'tag-wilco');
       } else {
         document.getElementById('PIIStatus').className   = 'threat-none';
-        document.getElementById('PIIStatus').textContent = '◈ PII STATUS: CLEAR';
-        addLog(`Query processed clean | latency ${ms}ms`, 'OK', 'tag-ok');
+        document.getElementById('PIIStatus').textContent = '◈ TRANSMISSION: CLEAR — OVER';
+        addLog(`ROGER — Transmission clear | latency ${ms}ms`, 'ROGER', 'tag-roger');
       }
-      addLog('Audit record written to immutable log', 'AUDIT', 'tag-info');
+      addLog('ROGER — Transmission logged to immutable audit record', 'AUDIT', 'tag-info');
       setTimeout(fetchAuditLog, 500);
 
     } catch (e) {
@@ -287,20 +291,20 @@
       addLog('Gateway connection failed — check MCPilot server', 'ERR', 'tag-err');
     }
 
-    btn.disabled    = false;
-    btn.textContent = 'TRANSMIT';
+    btn.disabled  = false;
+    btn.innerHTML = 'TRANSMIT<br>— OVER';
   }
 
   document.getElementById('queryInput').addEventListener('keydown', e => {
     if (e.ctrlKey && e.key === 'Enter') submitQuery();
   });
 
-  addLog('Echo server connected — 2 tools available', 'SRV', 'tag-ok');
-  addLog('RAG index loaded — semantic routing active', 'RAG', 'tag-ok');
-  addLog('Ollama LLM online — llama3.1:8b on-premise model ready', 'LLM', 'tag-ok');
-  addLog('PII detection pipeline active — spaCy NER loaded', 'PII', 'tag-ok');
-  fetchAuditLog();                          // load real records on page open
-  setInterval(fetchAuditLog, 10000);        // refresh every 10 seconds
+  addLog('Echo server connected — 2 tools available — OVER', 'SRV', 'tag-ok');
+  addLog('RAG index loaded — semantic routing active — OVER', 'RAG', 'tag-ok');
+  addLog('Ollama LLM online — llama3.2 on-premise model ready — OVER', 'LLM', 'tag-ok');
+  addLog('PII detection pipeline active — spaCy NER loaded — OVER', 'PII', 'tag-ok');
+  fetchAuditLog();
+  setInterval(fetchAuditLog, 10000);
 </script>
 </body>
 </html>
