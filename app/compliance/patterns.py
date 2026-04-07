@@ -46,10 +46,10 @@ BADGE_CONTEXT_REGEX = re.compile(
 # ── GPS / Coordinate patterns (single definition) ────────────────────────────
 # Covers: MGRS, Decimal Lat/Long, Degrees/Minutes/Seconds
 COORD_REGEX = re.compile(
-    r'\b\d{1,2}[A-X]\s+[A-Z]{2}\s+\d{2,10}(?:\s+\d{2,10})?\b|'   # MGRS (with optional easting)
-    r'\b\d{1,3}\.\d+°?\s*[NS]\s*,?\s*\d{1,3}\.\d+°?\s*[EW]\b|'    # Decimal Lat/Long
-    r'\b\d{1,3}°\s*\d{0,2}\'?\s*\d{0,2}\"?\s*[NS]\s*,?\s*'
-    r'\d{1,3}°\s*\d{0,2}\'?\s*\d{0,2}\"?\s*[EW]\b',               # DMS
+    r'\b\d{1,2}[A-X]\s+[A-Z]{2}\s+\d{2,10}(?:\s+\d{2,10})?\b|'   # MGRS
+    r'\b\d{1,3}°?\s*\d{0,2}\'?\s*\d{0,2}\"?\s*[NS]\s*,?\s*'
+    r'\d{1,3}°?\s*\d{0,2}\'?\s*\d{0,2}\"?\s*[EW]\b|'              # DMS (° optional)
+    r'\b\d{1,3}\.\d+°?\s*[NS]\s*,?\s*\d{1,3}\.\d+°?\s*[EW]\b',   # Decimal
     re.IGNORECASE
 )
 
