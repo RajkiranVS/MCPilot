@@ -5,7 +5,8 @@ Supports explicit, semantic, and hybrid routing modes.
 """
 import time
 import asyncio
-from datetime import datetime, timezone
+import hashlib
+from datetime import datetime, timezone, timedelta
 from app.compliance.pipeline import scan_input, scan_output
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -68,6 +69,48 @@ class ToolCallResponse(BaseModel):
     result:       dict | None = None
     error:        str | None  = None
     alternatives: list[dict]  = []
+
+
+def _record_metrics(
+    request: Request,
+    server_id: str,
+    tool_name: str,
+    latency_ms: float,
+    pii_detected: bool,
+    routing_mode: str,
+    status: str = "ok",
+) -> None:
+    """Helper to record a metrics event and broadcast to WebSocket clients."""
+    try:
+        store = request.app.state.metrics
+        store.record(ToolCallEvent(
+            timestamp=    datetime.now(timezone.utc).isoformat(),
+            server_id=    server_id,
+            tool_name=    tool_name,
+            latency_ms=   latency_ms,
+            pii_detected= pii_detected,
+            status=       status,
+            routing_mode= routing_mode,
+            tenant_id=    getattr(request.state, "tenant_id", "unknown"),
+        ))
+        return store
+    except Exception as e:
+        logger.warning(f"Metrics recording failed: {e}")
+        return None
+
+
+async def _broadcast_metrics(request: Request, store) -> None:
+    """Broadcast updated metrics to WebSocket clients."""
+    if store is None:
+        return
+    try:
+        await store.broadcast({
+            "type":    "event",
+            "summary": store.summary(),
+            "event":   store.recent_events(1)[0] if store.total_calls > 0 else {},
+        })
+    except Exception as e:
+        logger.warning(f"Metrics broadcast failed: {e}")
 
 
 @router.post("/tool", response_model=ToolCallResponse, summary="Invoke MCP tool")
@@ -154,26 +197,16 @@ async def invoke_tool(
         latency_ms=latency_ms,
     )
 
-    # ── Record metrics event ──────────────────────────────────────────────────
-    try:
-        store = request.app.state.metrics
-        store.record(ToolCallEvent(
-            timestamp=    datetime.now(timezone.utc).isoformat(),
-            server_id=    route.server_id,
-            tool_name=    route.tool_name,
-            latency_ms=   latency_ms,
-            pii_detected= input_scan.phi_detected or output_scan.phi_detected,
-            status=       "ok",
-            routing_mode= str(route.mode),
-            tenant_id=    getattr(request.state, "tenant_id", "unknown"),
-        ))
-        await store.broadcast({
-            "type":    "event",
-            "summary": store.summary(),
-            "event":   store.recent_events(1)[0] if store.total_calls > 0 else {},
-        })
-    except Exception as e:
-        logger.warning(f"Metrics recording failed: {e}")
+    # ── Record metrics ────────────────────────────────────────────────────────
+    store = _record_metrics(
+        request=request,
+        server_id=route.server_id,
+        tool_name=route.tool_name,
+        latency_ms=latency_ms,
+        pii_detected=input_scan.phi_detected or output_scan.phi_detected,
+        routing_mode=str(route.mode),
+    )
+    await _broadcast_metrics(request, store)
 
     return ToolCallResponse(
         status="ok",
@@ -218,8 +251,7 @@ async def search_tools(
 async def natural_language_query(request: Request) -> dict:
     from app.core.llm import complete
     from app.compliance.pipeline import scan_input_async
-    from app.compliance.cache import pii_cache
-    import hashlib
+    from app.compliance.cache import pii_cache, CacheEntry
 
     body = await request.json()
     query = body.get("query", "")
@@ -230,24 +262,41 @@ async def natural_language_query(request: Request) -> dict:
 
     # ── Check response cache first ────────────────────────────────────────────
     cache_key = f"query:{hashlib.sha256(query.encode()).hexdigest()[:16]}"
-    cached_response = pii_cache._store.get(cache_key)
-    if cached_response:
-        from datetime import datetime, timezone
-        if cached_response.expires_at > datetime.now(timezone.utc):
-            logger.debug("Query cache hit")
-            return cached_response.result  # result field stores the response dict
+    cached_entry = pii_cache._store.get(cache_key)
+    if cached_entry and cached_entry.expires_at > datetime.now(timezone.utc):
+        logger.debug("Query cache hit")
+        # Record cache hit in metrics — still shows on observability dashboard
+        store = _record_metrics(
+            request=request,
+            server_id="ollama",
+            tool_name="query",
+            latency_ms=2.5,
+            pii_detected=cached_entry.result.get("phi_detected", False),
+            routing_mode="cache",
+        )
+        await _broadcast_metrics(request, store)
+        return cached_entry.result
 
     # ── Tier 1+2: Fast PII scan ───────────────────────────────────────────────
+    t_scan_start = time.perf_counter()
     input_scan = await scan_input_async({"query": query})
     clean_query = input_scan.redacted.get("query", query)
+    logger.info(f"PII scan: {round((time.perf_counter() - t_scan_start) * 1000, 1)}ms")
 
     # ── LLM summary only if PII detected ─────────────────────────────────────
     if input_scan.phi_detected:
+        t_llm_start = time.perf_counter()
         summary = await complete(
-            prompt=f"In one sentence, what is this request asking for: '{clean_query}'",
-            system="You are a helpful assistant that summarises requests concisely.",
+            prompt=f"Summarise this military communication in one sentence: {clean_query}",
+            system=(
+                "You are a military communications analyst. "
+                "Summarise the intent of the message in one concise sentence. "
+                "Placeholders like [RANK_NAME], [SERVICE_NO], [COORD] represent redacted sensitive data. "
+                "Do not ask for clarification. Always produce a summary."
+            ),
             max_tokens=60,
         )
+        logger.info(f"LLM summary: {round((time.perf_counter() - t_llm_start) * 1000, 1)}ms")
     else:
         summary = "No sensitive data detected. Query passed through clean."
 
@@ -262,35 +311,23 @@ async def natural_language_query(request: Request) -> dict:
         "model":        settings.ollama_model,
     }
 
-    # ── Cache the full response ───────────────────────────────────────────────
+    # ── Cache PII responses for 1 hour ───────────────────────────────────────
     if input_scan.phi_detected:
-        from app.compliance.cache import CacheEntry
-        from datetime import datetime, timezone, timedelta
         pii_cache._store[cache_key] = CacheEntry(
             result=response,
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
 
-    # ── Record metrics ────────────────────────────────────────────────────────
-    try:
-        store = request.app.state.metrics
-        store.record(ToolCallEvent(
-            timestamp=    datetime.now(timezone.utc).isoformat(),
-            server_id=    "ollama",
-            tool_name=    "query",
-            latency_ms=   latency_ms,
-            pii_detected= input_scan.phi_detected,
-            status=       "ok",
-            routing_mode= "llm",
-            tenant_id=    getattr(request.state, "tenant_id", "unknown"),
-        ))
-        await store.broadcast({
-            "type":    "event",
-            "summary": store.summary(),
-            "event":   store.recent_events(1)[0] if store.total_calls > 0 else {},
-        })
-    except Exception as e:
-        logger.warning(f"Metrics recording failed: {e}")
+    # ── Record metrics — fires for ALL queries including clean ones ───────────
+    store = _record_metrics(
+        request=request,
+        server_id="ollama",
+        tool_name="query",
+        latency_ms=latency_ms,
+        pii_detected=input_scan.phi_detected,
+        routing_mode="llm" if input_scan.phi_detected else "spacy",
+    )
+    await _broadcast_metrics(request, store)
 
     return response
 

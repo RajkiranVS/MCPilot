@@ -20,7 +20,7 @@ import json
 from dataclasses import dataclass
 from app.compliance.phi_model import get_phi_model
 from app.compliance.patterns import (
-    REDACT_LABELS, PHI_LABELS, MILITARY_RANKS, BADGE_REGEX,
+    REDACT_LABELS, PHI_LABELS, MILITARY_RANKS, BADGE_REGEX, BADGE_CONTEXT_REGEX,
     COORD_REGEX, UNIT_STRENGTH_REGEX, FACILITY_REGEX,
     MILITARY_TIME_REGEX, CALLSIGN_REGEX, AREA_REGEX,
     RANK_NAME_REGEX, SERVICE_NUMBER_REGEX,
@@ -90,6 +90,7 @@ def _regex_scan(text: str) -> list[PHIEntity]:
         (UNIT_STRENGTH_REGEX,  "UNIT_STRENGTH"),
         (MILITARY_TIME_REGEX,  "MILITARY_TIME"),
         (AREA_REGEX,           "AREA"),
+        (BADGE_CONTEXT_REGEX,  "BADGE"),
         (SSN_REGEX,            "SSN"),
         (MRN_REGEX,            "MRN"),
         (PHONE_REGEX,          "PHONE"),
@@ -97,6 +98,22 @@ def _regex_scan(text: str) -> list[PHIEntity]:
         (DOB_REGEX,            "DOB"),
         (BADGE_REGEX,          "BADGE"),
     ]:
+        # Special handling for badge context — only redact the number not "badge"
+        if pattern is BADGE_CONTEXT_REGEX:
+            for m in pattern.finditer(text):
+                start, end = m.start(1), m.end(1)
+                if not any(s <= start < e or s < end <= e for s, e in covered):
+                    entities.append(PHIEntity(
+                        text=m.group(1),
+                        label="BADGE",
+                        start=start,
+                        end=end,
+                        redact=True,
+                        label_name=PHI_LABELS.get("BADGE", "BADGE"),
+                    ))
+                    covered.add((start, end))
+            continue
+        
         for m in pattern.finditer(text):
             add(m, label)
 
