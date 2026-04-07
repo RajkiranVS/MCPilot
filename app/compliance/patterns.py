@@ -36,6 +36,13 @@ BADGE_REGEX = re.compile(
     r'\b\d{3,6}[-/]\d{2,6}(?:[-/]\d{2,6})?\b'
 )
 
+# ── Badge with explicit context keyword ───────────────────────────────────────
+# Catches "badge 112-334-5567" — prevents phone regex claiming it first
+BADGE_CONTEXT_REGEX = re.compile(
+    r'\bbadge\s+([\d][\d\-/]{4,})\b',
+    re.IGNORECASE
+)
+
 # ── GPS / Coordinate patterns (single definition) ────────────────────────────
 # Covers: MGRS, Decimal Lat/Long, Degrees/Minutes/Seconds
 COORD_REGEX = re.compile(
