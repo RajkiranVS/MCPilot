@@ -88,7 +88,7 @@ async def scan_input_async(parameters: dict) -> ComplianceResult:
     )
 
 
-def scan_output(result: dict) -> ComplianceResult:
+def scan_output(result: dict, server_id: str = "") -> ComplianceResult:
     """
     Scan tool response for PHI before returning to client.
     Scans the content blocks inside the MCP result dict.
@@ -117,13 +117,26 @@ def scan_output(result: dict) -> ComplianceResult:
     for block in content:
         if isinstance(block, dict) and block.get("type") == "text":
             detection = phi_client.detect(block.get("text", ""))
-            redacted_block = {**block, "text": detection.redacted_text}
-            redacted_content.append(redacted_block)
-            if detection.phi_detected:
-                any_phi = True
+            # Maritime server — coords and timestamps are operational, not PII
+            if server_id == "maritime":
+                text = block.get("text", "")
+                safe_redactable = [
+                    e for e in detection.entities
+                    if e.redact and e.label not in ("COORD", "MILITARY_TIME", "AREA")
+                ]
+                redacted_text = text
+                for e in sorted(safe_redactable, key=lambda x: x.start, reverse=True):
+                    redacted_text = redacted_text[:e.start] + f"[{e.label}]" + redacted_text[e.end:]
+                redacted_block = {**block, "text": redacted_text}
+                if safe_redactable:
+                    any_phi = True
+            else:
+                redacted_block = {**block, "text": detection.redacted_text}
+                if detection.phi_detected:
+                    any_phi = True
+            redacted_content.append(redacted_block)  # ← was missing
         else:
             redacted_content.append(block)
-
     redacted_result = {**result, "content": redacted_content}
 
     if any_phi:

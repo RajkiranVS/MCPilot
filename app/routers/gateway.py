@@ -164,7 +164,7 @@ async def invoke_tool(
         raise HTTPException(status_code=500, detail=f"Tool call failed: {e}")
 
     # ── Scan output for PII ───────────────────────────────────────────────────
-    output_scan = scan_output(result)
+    output_scan = scan_output(result, server_id=route.server_id)
     if output_scan.phi_detected:
         logger.warning(
             f"PII in output | server={route.server_id} "

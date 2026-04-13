@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCPilot — Coast Guard Maritime Operations</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&family=Barlow:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:        #050C14;
+    --bg2:       #080F1A;
+    --bg3:       #0B1520;
+    --panel:     #0D1B2A;
+    --border:    #1A3050;
+    --border2:   #0F2030;
+    --amber:     #F5A623;
+    --amber2:    #C88010;
+    --amber3:    #7A5010;
+    --green:     #00FF88;
+    --green2:    #00CC66;
+    --red:       #FF3344;
+    --red2:      #CC1122;
+    --blue:      #00AAFF;
+    --blue2:     #0088CC;
+    --white:     #E8F4FF;
+    --muted:     #4A6A8A;
+    --muted2:    #2A4A6A;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-cond: 'Barlow Condensed', sans-serif;
+    --font-body: 'Barlow', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--white); font-family: var(--font-body); min-height: 100vh; overflow-x: hidden; }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+
+  @keyframes radar-pulse { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(2.5); opacity: 0; } }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes sweep { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 8px rgba(245,166,35,0.3); } 50% { box-shadow: 0 0 20px rgba(245,166,35,0.6); } }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; height: 56px; background: var(--bg2);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .logo-mark { width: 32px; height: 32px; border: 1.5px solid var(--amber); border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+  .logo-mark::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; border: 1px solid var(--amber3); }
+  .logo-dot { width: 5px; height: 5px; background: var(--amber); border-radius: 50%; }
+  .app-title { font-family: var(--font-cond); font-size: 18px; font-weight: 700; letter-spacing: 2px; color: var(--white); text-transform: uppercase; }
+  .app-title span { color: var(--amber); }
+  .unit-badge { font-family: var(--font-mono); font-size: 10px; color: var(--amber); background: rgba(245,166,35,0.1); border: 1px solid var(--amber3); padding: 2px 8px; letter-spacing: 2px; }
+  .topbar-right { display: flex; align-items: center; gap: 20px; }
+  .status-pill { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 2s infinite; }
+  .status-dot.amber { background: var(--amber); }
+  .status-dot.red { background: var(--red); animation: blink 0.5s infinite; }
+  .top-time { font-family: var(--font-mono); font-size: 13px; color: var(--amber); letter-spacing: 1px; }
+
+  .main { display: grid; grid-template-columns: 300px 1fr 320px; gap: 1px; height: calc(100vh - 56px); background: var(--border2); }
+
+  .panel-left { background: var(--panel); display: flex; flex-direction: column; overflow: hidden; }
+  .panel-header { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .panel-title { font-family: var(--font-mono); font-size: 10px; letter-spacing: 3px; color: var(--amber); text-transform: uppercase; }
+  .panel-count { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+  .mmsi-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .mmsi-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+  .mmsi-input-row { display: flex; gap: 6px; }
+  .mmsi-input { flex: 1; background: var(--bg3); border: 1px solid var(--border); color: var(--amber); font-family: var(--font-mono); font-size: 14px; padding: 8px 10px; outline: none; letter-spacing: 2px; transition: border-color 0.2s; }
+  .mmsi-input:focus { border-color: var(--amber); }
+  .mmsi-input::placeholder { color: var(--muted2); font-size: 11px; letter-spacing: 1px; }
+
+  .btn { background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: var(--font-mono); font-size: 10px; padding: 8px 12px; cursor: pointer; letter-spacing: 1px; transition: all 0.2s; text-transform: uppercase; }
+  .btn:hover { border-color: var(--amber); color: var(--amber); }
+  .btn.primary { background: var(--amber); border-color: var(--amber); color: var(--bg); font-weight: 700; }
+  .btn.primary:hover { background: var(--amber2); }
+  .btn.small { padding: 4px 8px; font-size: 9px; }
+
+  .quick-vessels { padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .quick-label { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+
+  /* Vessel list — scrollable */
+  .vessel-list { max-height: 180px; overflow-y: auto; }
+  .vessel-chip { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; margin-bottom: 4px; background: var(--bg3); border: 1px solid var(--border2); cursor: pointer; transition: all 0.15s; }
+  .vessel-chip:hover { border-color: var(--border); background: var(--bg2); }
+  .vessel-chip.dark-vessel { border-color: var(--red2); }
+  .vessel-chip.dark-vessel:hover { border-color: var(--red); background: rgba(255,51,68,0.05); }
+  .vessel-chip.selected { border-color: var(--amber); background: rgba(245,166,35,0.05); }
+  .vessel-chip-name { font-family: var(--font-cond); font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+  .vessel-chip-mmsi { font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
+  .vessel-chip-status { font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px; padding: 2px 5px; }
+  .status-green { color: var(--green); border: 1px solid rgba(0,255,136,0.3); }
+  .status-red { color: var(--red); border: 1px solid rgba(255,51,68,0.3); animation: blink 1s infinite; }
+  .status-amber { color: var(--amber); border: 1px solid rgba(245,166,35,0.3); }
+  .status-blue { color: var(--blue); border: 1px solid rgba(0,170,255,0.3); }
+
+  .live-badge { font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px; padding: 1px 5px; color: var(--green); border: 1px solid rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+  .sim-badge { font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px; padding: 1px 5px; color: var(--muted); border: 1px solid var(--muted2); }
+
+  .tool-section { padding: 10px 16px; flex: 1; overflow-y: auto; }
+  .tool-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; margin-bottom: 4px; background: var(--bg3); border: 1px solid var(--border2); color: var(--white); font-family: var(--font-body); font-size: 12px; cursor: pointer; transition: all 0.15s; text-align: left; }
+  .tool-btn:hover { border-color: var(--border); background: var(--bg2); }
+  .tool-btn.active { border-color: var(--amber); background: rgba(245,166,35,0.05); }
+  .tool-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); font-size: 13px; flex-shrink: 0; }
+  .tool-info { flex: 1; }
+  .tool-name { font-family: var(--font-mono); font-size: 10px; color: var(--amber); letter-spacing: 1px; }
+  .tool-desc { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  .panel-centre { background: var(--bg2); display: flex; flex-direction: column; overflow: hidden; }
+  .radar-header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+
+  .radar-container { display: flex; align-items: center; justify-content: center; padding: 20px; border-bottom: 1px solid var(--border); background: var(--bg); position: relative; height: 260px; }
+  .radar { position: relative; width: 220px; height: 220px; }
+  .radar-ring { position: absolute; border-radius: 50%; border: 1px solid rgba(0,170,255,0.12); top: 50%; left: 50%; transform: translate(-50%,-50%); }
+  .radar-crosshair { position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: rgba(0,170,255,0.1); transform: translateY(-50%); }
+  .radar-crosshair.v { width: 1px; height: 100%; top: 0; left: 50%; transform: translateX(-50%); }
+  .radar-sweep { position: absolute; width: 50%; height: 50%; top: 50%; left: 50%; transform-origin: 0% 100%; animation: sweep 4s linear infinite; background: conic-gradient(from 0deg, transparent 0deg, rgba(0,255,136,0.08) 30deg, rgba(0,255,136,0.15) 60deg, rgba(0,255,136,0.05) 80deg, transparent 90deg); }
+  .radar-blip { position: absolute; width: 6px; height: 6px; border-radius: 50%; transform: translate(-50%,-50%); cursor: pointer; }
+  .radar-blip::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; animation: radar-pulse 2s infinite; }
+  .blip-green { background: var(--green); } .blip-green::after { background: rgba(0,255,136,0.3); }
+  .blip-amber { background: var(--amber); } .blip-amber::after { background: rgba(245,166,35,0.3); }
+  .blip-red { background: var(--red); } .blip-red::after { background: rgba(255,51,68,0.3); }
+  .blip-blue { background: var(--blue); } .blip-blue::after { background: rgba(0,170,255,0.3); }
+  .radar-label { position: absolute; font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px; white-space: nowrap; }
+
+  .coord-strip { display: flex; gap: 1px; padding: 0; background: var(--border2); }
+  .coord-cell { flex: 1; padding: 6px 12px; background: var(--bg2); font-family: var(--font-mono); font-size: 10px; }
+  .coord-key { color: var(--muted); font-size: 8px; letter-spacing: 1px; margin-bottom: 2px; }
+  .coord-val { color: var(--amber); }
+
+  .result-area { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .result-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; opacity: 0.3; }
+  .result-empty-icon { font-size: 40px; }
+  .result-empty-text { font-family: var(--font-mono); font-size: 11px; letter-spacing: 2px; color: var(--muted); text-align: center; }
+
+  .result-card { background: var(--panel); border: 1px solid var(--border); margin-bottom: 12px; animation: fadeIn 0.3s ease; }
+  .result-card.red { border-color: var(--red2); }
+  .result-card.amber { border-color: var(--amber3); }
+  .result-card.green { border-color: rgba(0,255,136,0.2); }
+  .result-card.blue { border-color: rgba(0,170,255,0.2); }
+  .result-card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .result-card-title { font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; color: var(--amber); }
+  .alert-badge { font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px; padding: 2px 8px; font-weight: 700; }
+  .alert-red { background: rgba(255,51,68,0.15); color: var(--red); border: 1px solid var(--red2); }
+  .alert-amber { background: rgba(245,166,35,0.15); color: var(--amber); border: 1px solid var(--amber3); }
+  .alert-green { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.3); }
+  .alert-blue { background: rgba(0,170,255,0.1); color: var(--blue); border: 1px solid rgba(0,170,255,0.3); }
+  .result-card-body { padding: 12px 14px; }
+
+  .data-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--border2); font-size: 12px; }
+  .data-row:last-child { border-bottom: none; }
+  .data-key { color: var(--muted); font-family: var(--font-mono); font-size: 10px; }
+  .data-val { color: var(--white); font-family: var(--font-cond); font-size: 13px; font-weight: 600; }
+  .data-val.amber { color: var(--amber); } .data-val.red { color: var(--red); } .data-val.green { color: var(--green); } .data-val.blue { color: var(--blue); }
+
+  .risk-bar-container { padding: 10px 0 4px; }
+  .risk-bar-label { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .risk-bar-track { height: 6px; background: var(--bg3); border: 1px solid var(--border); position: relative; }
+  .risk-bar-fill { height: 100%; transition: width 0.8s ease; }
+
+  .anomaly-item { padding: 8px 10px; margin-bottom: 6px; border-left: 3px solid var(--red); background: rgba(255,51,68,0.05); }
+  .anomaly-type { font-family: var(--font-mono); font-size: 10px; color: var(--red); letter-spacing: 1px; margin-bottom: 3px; }
+  .anomaly-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .anomaly-confidence { font-family: var(--font-mono); font-size: 9px; color: var(--amber); margin-top: 3px; }
+
+  .action-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-family: var(--font-mono); font-size: 11px; border-bottom: 1px solid var(--border2); }
+  .action-item:last-child { border-bottom: none; }
+  .action-priority { font-size: 9px; letter-spacing: 1px; padding: 1px 5px; }
+  .priority-immediate { color: var(--red); border: 1px solid var(--red2); }
+  .priority-high { color: var(--amber); border: 1px solid var(--amber3); }
+  .priority-medium { color: var(--blue); border: 1px solid var(--blue2); }
+  .priority-routine { color: var(--muted); border: 1px solid var(--muted2); }
+
+  .pans-item { padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--border); background: var(--bg3); }
+  .pans-id { font-family: var(--font-mono); font-size: 9px; color: var(--amber); letter-spacing: 1px; }
+  .pans-title { font-family: var(--font-cond); font-size: 14px; font-weight: 600; margin: 4px 0; }
+  .pans-area { font-family: var(--font-mono); font-size: 10px; color: var(--blue); margin-bottom: 6px; }
+  .pans-detail { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .pans-valid { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-top: 6px; }
+
+  .vessel-grid-item { padding: 8px 10px; margin-bottom: 4px; border: 1px solid var(--border2); background: var(--bg3); cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: all 0.15s; }
+  .vessel-grid-item:hover { border-color: var(--amber); }
+  .vessel-grid-item.dark { border-color: var(--red2); }
+  .vg-name { font-family: var(--font-cond); font-size: 12px; font-weight: 600; }
+  .vg-mmsi { font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
+  .vg-pos { font-family: var(--font-mono); font-size: 9px; color: var(--amber); }
+  .vg-speed { font-family: var(--font-mono); font-size: 9px; color: var(--blue); }
+  .vg-type { font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px; padding: 1px 4px; }
+
+  .loading { display: flex; align-items: center; gap: 10px; padding: 20px; font-family: var(--font-mono); font-size: 11px; color: var(--amber); letter-spacing: 1px; animation: fadeIn 0.2s ease; }
+  .loading-dots span { display: inline-block; animation: blink 1s infinite; }
+  .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  .panel-right { background: var(--panel); display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border); }
+  .intel-feed { flex: 1; overflow-y: auto; padding: 10px 14px; }
+  .intel-item { padding: 8px 10px; margin-bottom: 6px; border-left: 2px solid var(--border); animation: fadeIn 0.3s ease; }
+  .intel-item.red { border-color: var(--red); } .intel-item.amber { border-color: var(--amber); }
+  .intel-item.green { border-color: var(--green); } .intel-item.blue { border-color: var(--blue); }
+  .intel-time { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-bottom: 3px; }
+  .intel-text { font-size: 11px; color: var(--white); line-height: 1.4; }
+
+  .stats-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border2); border-top: 1px solid var(--border); }
+  .stat-cell { background: var(--bg2); padding: 10px 14px; text-align: center; }
+  .stat-val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--amber); display: block; }
+  .stat-val.red { color: var(--red); } .stat-val.green { color: var(--green); }
+  .stat-label { font-family: var(--font-mono); font-size: 8px; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
+
+  .query-bar { padding: 12px 16px; background: var(--bg); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+  .query-input { flex: 1; background: var(--bg3); border: 1px solid var(--border); color: var(--white); font-family: var(--font-mono); font-size: 12px; padding: 9px 14px; outline: none; transition: border-color 0.2s; letter-spacing: 0.5px; }
+  .query-input:focus { border-color: var(--amber); }
+  .query-input::placeholder { color: var(--muted); }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--muted2); }
+
+  .pii-notice { font-family: var(--font-mono); font-size: 9px; color: var(--green); letter-spacing: 1px; padding: 4px 8px; border: 1px solid rgba(0,255,136,0.2); background: rgba(0,255,136,0.05); }
+  .section-divider { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 3px; text-transform: uppercase; padding: 8px 0 4px; border-bottom: 1px solid var(--border2); margin-bottom: 8px; }
+  .escalation-banner { background: rgba(255,51,68,0.1); border: 1px solid var(--red2); padding: 10px 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; animation: glow-pulse 1.5s infinite; }
+  .escalation-icon { font-size: 18px; }
+  .escalation-text { font-family: var(--font-mono); font-size: 11px; color: var(--red); letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo-mark"><div class="logo-dot"></div></div>
+    <div><div class="app-title">MC<span>Pilot</span></div></div>
+    <div class="unit-badge">ICG · MARITIME DOMAIN AWARENESS</div>
+  </div>
+  <div class="topbar-right">
+    <div class="status-pill">
+      <div class="status-dot" id="gateway-dot"></div>
+      <span id="gateway-status" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:1px;">CONNECTING</span>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot" id="ais-dot" style="background:var(--muted)"></div>
+      <span id="ais-feed-status" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:1px;">AIS LOADING</span>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot amber"></div>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:1px;">PII SHIELD ACTIVE</span>
+    </div>
+    <div class="top-time" id="clock">--:--:-- UTC</div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- LEFT PANEL -->
+  <div class="panel-left">
+    <div class="panel-header">
+      <div class="panel-title">◈ VESSEL LOOKUP</div>
+      <div class="panel-count" id="vessel-count">LOADING...</div>
+    </div>
+
+    <div class="mmsi-section">
+      <div class="mmsi-label">◈ ENTER MMSI / CALL SIGN</div>
+      <div class="mmsi-input-row">
+        <input class="mmsi-input" id="mmsi-input" type="text" placeholder="419009999" maxlength="9">
+        <button class="btn primary" onclick="lookupMmsi()">GO</button>
+      </div>
+    </div>
+
+    <div class="quick-vessels">
+      <div class="quick-label">
+        <span>◈ TRACKED VESSELS</span>
+        <button class="btn small" onclick="refreshVessels()">↺ REFRESH</button>
+      </div>
+      <div class="vessel-list" id="vessel-list">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);padding:10px;text-align:center;letter-spacing:1px">LOADING AIS DATA...</div>
+      </div>
+    </div>
+
+    <div class="tool-section">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:8px;">◈ MDA TOOLS</div>
+      <button class="tool-btn" id="tool-list" onclick="runTool('list_vessels_in_zone')">
+        <div class="tool-icon">⊕</div>
+        <div class="tool-info">
+          <div class="tool-name">LIST_VESSELS</div>
+          <div class="tool-desc">All vessels in zone</div>
+        </div>
+      </button>
+      <button class="tool-btn" id="tool-track" onclick="runTool('get_vessel_track')">
+        <div class="tool-icon">⊙</div>
+        <div class="tool-info">
+          <div class="tool-name">GET_VESSEL_TRACK</div>
+          <div class="tool-desc">AIS history + kinematics</div>
+        </div>
+      </button>
+      <button class="tool-btn" id="tool-classify" onclick="runTool('classify_vessel')">
+        <div class="tool-icon">◈</div>
+        <div class="tool-info">
+          <div class="tool-name">CLASSIFY_VESSEL</div>
+          <div class="tool-desc">Identity + database check</div>
+        </div>
+      </button>
+      <button class="tool-btn" id="tool-anomaly" onclick="runTool('flag_anomaly')">
+        <div class="tool-icon">⚠</div>
+        <div class="tool-info">
+          <div class="tool-name">FLAG_ANOMALY</div>
+          <div class="tool-desc">Loitering, spoofing, EEZ</div>
+        </div>
+      </button>
+      <button class="tool-btn" id="tool-risk" onclick="runTool('get_risk_score')">
+        <div class="tool-icon">◆</div>
+        <div class="tool-info">
+          <div class="tool-name">GET_RISK_SCORE</div>
+          <div class="tool-desc">VOI ranking 0–100</div>
+        </div>
+      </button>
+      <button class="tool-btn" id="tool-pans" onclick="runTool('search_pans_data')">
+        <div class="tool-icon">▣</div>
+        <div class="tool-info">
+          <div class="tool-name">SEARCH_PANS</div>
+          <div class="tool-desc">RAG over maritime notices</div>
+        </div>
+      </button>
+      <button class="tool-btn" id="tool-investigate" onclick="runTool('investigate_vessel')" style="border-color:var(--amber3)">
+        <div class="tool-icon" style="border-color:var(--amber);color:var(--amber)">◉</div>
+        <div class="tool-info">
+          <div class="tool-name" style="color:var(--amber)">INVESTIGATE_VESSEL</div>
+          <div class="tool-desc">Full MDA report — §3.6</div>
+        </div>
+      </button>
+    </div>
+  </div>
+
+  <!-- CENTRE PANEL -->
+  <div class="panel-centre">
+    <div class="radar-header">
+      <div class="panel-title">◈ MARITIME OPERATIONS CONSOLE</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="pii-notice" id="pii-notice" style="display:none">✓ PII REDACTED</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted)" id="current-mmsi">NO VESSEL SELECTED</div>
+      </div>
+    </div>
+
+    <div class="radar-container">
+      <div class="radar" id="radar">
+        <div class="radar-ring" style="width:50px;height:50px"></div>
+        <div class="radar-ring" style="width:100px;height:100px"></div>
+        <div class="radar-ring" style="width:150px;height:150px"></div>
+        <div class="radar-ring" style="width:200px;height:200px"></div>
+        <div class="radar-crosshair"></div>
+        <div class="radar-crosshair v"></div>
+        <div class="radar-sweep"></div>
+        <div id="radar-blips"></div>
+      </div>
+      <div style="position:absolute;bottom:0;left:0;right:0">
+        <div class="coord-strip">
+          <div class="coord-cell"><div class="coord-key">SECTOR</div><div class="coord-val">Arabian Sea W</div></div>
+          <div class="coord-cell"><div class="coord-key">VESSELS</div><div class="coord-val" id="coord-vessels">—</div></div>
+          <div class="coord-cell"><div class="coord-key">SELECTED LAT</div><div class="coord-val" id="coord-lat">—</div></div>
+          <div class="coord-cell"><div class="coord-key">SELECTED LON</div><div class="coord-val" id="coord-lon">—</div></div>
+          <div class="coord-cell"><div class="coord-key">AIS FEED</div><div class="coord-val" id="coord-feed">LOADING</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="result-area" id="result-area">
+      <div class="result-empty" id="result-empty">
+        <div class="result-empty-icon">⊙</div>
+        <div class="result-empty-text">SELECT A VESSEL AND RUN AN MDA TOOL<br>OR TYPE A NATURAL LANGUAGE QUERY BELOW</div>
+      </div>
+    </div>
+
+    <div class="query-bar">
+      <input class="query-input" id="nl-query" placeholder="e.g. 'investigate dark vessel 419009999 suspicious EEZ activity'" onkeydown="if(event.key==='Enter')runNLQuery()">
+      <button class="btn primary" onclick="runNLQuery()">SEND</button>
+      <button class="btn" onclick="clearResults()">CLR</button>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel-right">
+    <div class="panel-header">
+      <div class="panel-title">◈ INTEL FEED</div>
+      <div class="panel-count" id="intel-count">0 EVENTS</div>
+    </div>
+    <div class="intel-feed" id="intel-feed">
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-align:center;padding:20px;letter-spacing:1px">AWAITING ACTIVITY</div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat-cell"><span class="stat-val" id="stat-tracked">0</span><div class="stat-label">TRACKED</div></div>
+      <div class="stat-cell"><span class="stat-val red" id="stat-dark">0</span><div class="stat-label">DARK</div></div>
+      <div class="stat-cell"><span class="stat-val amber" id="stat-voi">0</span><div class="stat-label">VOI</div></div>
+      <div class="stat-cell"><span class="stat-val green" id="stat-clear">0</span><div class="stat-label">CLEAR</div></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_KEY = 'mcpilot-dev-key-001';
+const BASE    = 'http://localhost:8000';
+
+let currentMmsi  = '';
+let intelCount   = 0;
+let voiCount     = 0;
+let allVessels   = [];
+let isLiveFeed   = false;
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+function updateClock() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    `${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── Gateway health ─────────────────────────────────────────────────────────
+async function checkGateway() {
+  try {
+    const r = await fetch(`${BASE}/health`, { headers: {'X-API-Key': API_KEY} });
+    document.getElementById('gateway-dot').className = `status-dot ${r.ok ? '' : 'red'}`;
+    document.getElementById('gateway-status').textContent = r.ok ? 'GATEWAY ONLINE' : 'GATEWAY OFFLINE';
+  } catch {
+    document.getElementById('gateway-dot').className = 'status-dot red';
+    document.getElementById('gateway-status').textContent = 'GATEWAY OFFLINE';
+  }
+}
+checkGateway(); setInterval(checkGateway, 30000);
+
+// ── Load vessels ───────────────────────────────────────────────────────────
+async function refreshVessels() {
+  try {
+    const body = { server_id: 'maritime', tool_name: 'list_vessels_in_zone', parameters: { zone: 'ALL' } };
+    const r = await fetch(`${BASE}/gateway/tool`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const resp = await r.json();
+    const content = resp.result?.content?.[0]?.text;
+    if (!content) return;
+    const data = JSON.parse(content);
+
+    allVessels = data.vessels || [];
+    isLiveFeed = data.live_feed || false;
+    renderVesselList(allVessels, isLiveFeed);
+    renderRadarBlips(allVessels);
+    updateStats(allVessels);
+    document.getElementById('coord-vessels').textContent = `${allVessels.length} ACTIVE`;
+    document.getElementById('coord-feed').textContent = isLiveFeed ? 'LIVE AIS' : 'SIMULATED';
+
+    // Update AIS status indicator
+    document.getElementById('ais-dot').style.background = isLiveFeed ? 'var(--green)' : 'var(--amber)';
+    document.getElementById('ais-feed-status').textContent = isLiveFeed ? 'AIS LIVE' : 'AIS SIMULATED';
+    document.getElementById('vessel-count').textContent = `${allVessels.length} VESSELS`;
+
+    addIntel(`Vessel roster updated — ${allVessels.length} tracked, feed: ${isLiveFeed ? 'LIVE' : 'SIMULATED'}`, isLiveFeed ? 'green' : 'blue');
+  } catch(e) {
+    addIntel(`Vessel refresh failed: ${e.message}`, 'red');
+  }
+}
+
+function renderVesselList(vessels, live) {
+  const list = document.getElementById('vessel-list');
+  if (!vessels.length) {
+    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);padding:10px;text-align:center">NO VESSELS IN ZONE</div>';
+    return;
+  }
+
+  list.innerHTML = vessels.map(v => {
+    const isDark = v.status === 'DARK_VESSEL' || v.type === 'Unknown';
+    const isSelected = v.mmsi === currentMmsi;
+    const statusClass = isDark ? 'status-red' : (v.speed > 0.5 ? 'status-green' : 'status-amber');
+    const statusText  = isDark ? 'DARK' : (v.speed > 0.5 ? 'ACTIVE' : 'STOPPED');
+    const chipClass   = `vessel-chip${isDark ? ' dark-vessel' : ''}${isSelected ? ' selected' : ''}`;
+    const sourceTag   = live ? '<span class="live-badge">LIVE</span>' : '<span class="sim-badge">SIM</span>';
+
+    return `<div class="${chipClass}" onclick="selectVessel('${v.mmsi}', ${v.lat||0}, ${v.lon||0})">
+      <div>
+        <div class="vessel-chip-name" style="${isDark ? 'color:var(--red)' : ''}">${isDark ? '◉ ' : ''}${v.name || 'UNKNOWN'}</div>
+        <div class="vessel-chip-mmsi">${v.mmsi} · ${(v.type||'UNK').toUpperCase()} · ${v.speed||0}kts ${sourceTag}</div>
+      </div>
+      <div class="vessel-chip-status ${statusClass}">${statusText}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderRadarBlips(vessels) {
+  const container = document.getElementById('radar-blips');
+  container.innerHTML = '';
+
+  vessels.forEach((v, i) => {
+    const isDark = v.status === 'DARK_VESSEL' || v.type === 'Unknown';
+    const isFishing = v.type === 'Fishing';
+    const blipClass = isDark ? 'blip-red' : (isFishing ? 'blip-amber' : 'blip-green');
+
+    // Map lat/lon to radar position (approximate Indian coastal bbox)
+    const x = Math.max(10, Math.min(90, ((v.lon - 66) / (98 - 66)) * 80 + 10));
+    const y = Math.max(10, Math.min(90, (1 - (v.lat - 6) / (24 - 6)) * 80 + 10));
+    const labelSide = x > 60 ? 'right:10px' : 'left:10px';
+    const color = isDark ? 'var(--red)' : (isFishing ? 'var(--amber)' : 'var(--green)');
+
+    const blip = document.createElement('div');
+    blip.className = `radar-blip ${blipClass}`;
+    blip.id = `blip-${v.mmsi}`;
+    blip.style.cssText = `left:${x}%;top:${y}%;`;
+    blip.title = v.name;
+    blip.onclick = () => selectVessel(v.mmsi, v.lat, v.lon);
+    blip.innerHTML = `<div class="radar-label" style="${labelSide};top:-5px;color:${color}">${v.name?.substring(0,12) || v.mmsi}</div>`;
+    container.appendChild(blip);
+  });
+}
+
+function updateStats(vessels) {
+  const dark  = vessels.filter(v => v.status === 'DARK_VESSEL' || v.type === 'Unknown').length;
+  const clear = vessels.filter(v => v.status === 'ACTIVE' && v.type !== 'Unknown').length;
+  document.getElementById('stat-tracked').textContent = vessels.length;
+  document.getElementById('stat-dark').textContent    = dark;
+  document.getElementById('stat-clear').textContent   = clear;
+}
+
+// ── Vessel selection ───────────────────────────────────────────────────────
+function selectVessel(mmsi, lat, lon) {
+  currentMmsi = mmsi;
+  document.getElementById('mmsi-input').value = mmsi;
+  document.getElementById('current-mmsi').textContent = `MMSI: ${mmsi}`;
+  if (lat) document.getElementById('coord-lat').textContent = `${lat}° N`;
+  if (lon) document.getElementById('coord-lon').textContent = `${lon}° E`;
+
+  // Highlight selected chip
+  document.querySelectorAll('.vessel-chip').forEach(c => c.classList.remove('selected'));
+  const vessel = allVessels.find(v => v.mmsi === mmsi);
+  addIntel(`Vessel ${mmsi}${vessel ? ' — ' + vessel.name : ''} selected`, 'blue');
+  renderVesselList(allVessels, isLiveFeed);
+}
+
+function lookupMmsi() {
+  const val = document.getElementById('mmsi-input').value.trim();
+  if (val) { currentMmsi = val; document.getElementById('current-mmsi').textContent = `MMSI: ${val}`; addIntel(`Manual MMSI lookup: ${val}`, 'blue'); }
+}
+
+// ── API call ───────────────────────────────────────────────────────────────
+async function callTool(serverid, toolname, params) {
+  const r = await fetch(`${BASE}/gateway/tool`, {
+    method: 'POST',
+    headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ server_id: serverid, tool_name: toolname, parameters: params }),
+  });
+  return r.json();
+}
+
+// ── Loading helpers ────────────────────────────────────────────────────────
+function showLoading(msg) {
+  const empty = document.getElementById('result-empty');
+  if (empty) empty.style.display = 'none';
+  const area = document.getElementById('result-area');
+  let el = document.getElementById('loading-indicator');
+  if (!el) { el = document.createElement('div'); el.id = 'loading-indicator'; area.insertBefore(el, area.firstChild); }
+  el.className = 'loading';
+  el.innerHTML = `<span>◈</span> ${msg} <span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
+}
+
+function removeLoading() {
+  const el = document.getElementById('loading-indicator');
+  if (el) el.remove();
+}
+
+function clearResults() {
+  document.getElementById('result-area').innerHTML = '<div class="result-empty" id="result-empty"><div class="result-empty-icon">⊙</div><div class="result-empty-text">SELECT A VESSEL AND RUN AN MDA TOOL<br>OR TYPE A NATURAL LANGUAGE QUERY BELOW</div></div>';
+  document.getElementById('pii-notice').style.display = 'none';
+}
+
+// ── Tool runner ────────────────────────────────────────────────────────────
+const TOOL_IDS = {
+  'list_vessels_in_zone': 'list', 'get_vessel_track': 'track',
+  'classify_vessel': 'classify', 'flag_anomaly': 'anomaly',
+  'get_risk_score': 'risk', 'search_pans_data': 'pans',
+  'investigate_vessel': 'investigate',
+};
+
+async function runTool(toolname) {
+  if (!currentMmsi && !['search_pans_data','list_vessels_in_zone'].includes(toolname)) {
+    addIntel('No vessel selected — choose a vessel first', 'amber'); return;
+  }
+
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  const tid = TOOL_IDS[toolname];
+  if (tid) document.getElementById(`tool-${tid}`)?.classList.add('active');
+
+  showLoading(`RUNNING ${toolname.toUpperCase().replace(/_/g,' ')}`);
+
+  try {
+    let params;
+    if (toolname === 'search_pans_data') params = { query: 'prohibited areas suspicious vessels notices', area: '' };
+    else if (toolname === 'list_vessels_in_zone') params = { zone: 'ALL' };
+    else params = { mmsi: currentMmsi, reason: 'DARK_VESSEL' };
+
+    const resp = await callTool('maritime', toolname, params);
+    removeLoading();
+    renderResult(toolname, resp);
+  } catch(e) {
+    removeLoading();
+    addIntel(`Tool call failed: ${e.message}`, 'red');
+  }
+}
+
+// ── NL Query ───────────────────────────────────────────────────────────────
+async function runNLQuery() {
+  const query = document.getElementById('nl-query').value.trim();
+  if (!query) return;
+  showLoading('PROCESSING QUERY');
+  addIntel(`Query: "${query.substring(0,50)}..."`, 'blue');
+
+  try {
+    const mmsiMatch = query.match(/\b\d{9}\b/);
+    const mmsi = mmsiMatch ? mmsiMatch[0] : (currentMmsi || '419009999');
+    const ql = query.toLowerCase();
+
+    let toolname = 'investigate_vessel';
+    if (ql.includes('list') || ql.includes('all vessel') || ql.includes('zone')) toolname = 'list_vessels_in_zone';
+    else if (ql.includes('track') || ql.includes('position') || ql.includes('ais')) toolname = 'get_vessel_track';
+    else if (ql.includes('classif') || ql.includes('identif') || ql.includes('type')) toolname = 'classify_vessel';
+    else if (ql.includes('anomal') || ql.includes('loiter') || ql.includes('spoof') || ql.includes('suspicious')) toolname = 'flag_anomaly';
+    else if (ql.includes('risk') || ql.includes('voi') || ql.includes('score')) toolname = 'get_risk_score';
+    else if (ql.includes('pans') || ql.includes('notice') || ql.includes('prohibited')) toolname = 'search_pans_data';
+
+    let params;
+    if (toolname === 'search_pans_data') params = { query, area: '' };
+    else if (toolname === 'list_vessels_in_zone') params = { zone: 'ALL' };
+    else params = { mmsi, reason: 'INTELLIGENCE_INPUT' };
+
+    const resp = await callTool('maritime', toolname, params);
+    removeLoading();
+    renderResult(toolname, resp);
+    document.getElementById('nl-query').value = '';
+  } catch(e) {
+    removeLoading();
+    addIntel(`Query failed: ${e.message}`, 'red');
+  }
+}
+
+// ── Render result ──────────────────────────────────────────────────────────
+function renderResult(toolname, resp) {
+  const area = document.getElementById('result-area');
+  const empty = document.getElementById('result-empty');
+  if (empty) empty.style.display = 'none';
+
+  let data;
+  try { data = JSON.parse(resp.result?.content?.[0]?.text); } catch { data = null; }
+  if (!data) { addIntel('Failed to parse tool response', 'red'); return; }
+
+  document.getElementById('pii-notice').style.display = 'flex';
+
+  // Data source badge
+  const isLive = (data.data_source || '').includes('live') || (data.live_feed === true);
+  const srcBadge = isLive
+    ? `<span class="live-badge">LIVE AIS</span>`
+    : `<span class="sim-badge">SIMULATED</span>`;
+
+  const alertLevel = (data.alert_level || data.overall_risk || data.risk_level || 'INFO').toUpperCase();
+  const alertClass = alertLevel === 'RED' || alertLevel === 'CRITICAL' ? 'red'
+    : alertLevel === 'AMBER' || alertLevel === 'HIGH' ? 'amber'
+    : alertLevel === 'GREEN' || alertLevel === 'LOW' ? 'green' : 'blue';
+
+  const card = document.createElement('div');
+  card.className = `result-card ${alertClass}`;
+
+  let html = `<div class="result-card-header">
+    <div class="result-card-title">◈ ${toolname.toUpperCase().replace(/_/g,' ')} ${srcBadge}</div>
+    <div class="alert-badge alert-${alertClass}">${alertLevel}</div>
+  </div><div class="result-card-body">`;
+
+  // ── list_vessels_in_zone ──
+  if (toolname === 'list_vessels_in_zone') {
+    const vessels = data.vessels || [];
+    html += dataRow('ZONE', data.zone || 'ALL');
+    html += dataRow('TOTAL TRACKED', data.total_tracked, 'amber');
+    html += dataRow('DATA SOURCE', data.live_feed ? 'LIVE AIS — aisstream.io' : 'SIMULATED', data.live_feed ? 'green' : 'amber');
+    html += dataRow('COVERAGE', data.bbox || '—');
+
+    if (vessels.length > 0) {
+      html += `<div class="section-divider">VESSEL ROSTER</div>`;
+      vessels.forEach(v => {
+        const isDark = v.status === 'DARK_VESSEL' || v.type === 'Unknown';
+        const typeColor = isDark ? 'red' : (v.type === 'Fishing' ? 'amber' : 'green');
+        html += `<div class="vessel-grid-item${isDark ? ' dark' : ''}" onclick="selectVessel('${v.mmsi}', ${v.lat||0}, ${v.lon||0})">
+          <div>
+            <div class="vg-name" style="${isDark ? 'color:var(--red)' : ''}">${isDark ? '◉ ' : ''}${v.name || 'UNKNOWN'}</div>
+            <div class="vg-mmsi">MMSI: ${v.mmsi}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="vg-type data-val ${typeColor}">${(v.type||'UNK').toUpperCase()}</div>
+            <div class="vg-pos">${v.lat||0}N ${v.lon||0}E</div>
+            <div class="vg-speed">${v.speed||0} kts</div>
+          </div>
+        </div>`;
+      });
+
+      // Update vessel list in left panel with fresh data
+      allVessels = vessels;
+      isLiveFeed = data.live_feed || false;
+      renderVesselList(vessels, isLiveFeed);
+      renderRadarBlips(vessels);
+      updateStats(vessels);
+    }
+    addIntel(`Zone scan: ${data.total_tracked} vessels — ${data.live_feed ? 'LIVE AIS' : 'SIMULATED'}`, data.live_feed ? 'green' : 'blue');
+  }
+
+  // ── get_vessel_track ──
+  else if (toolname === 'get_vessel_track') {
+    const v = data.vessel || {};
+    const t = data.track_summary || {};
+    html += dataRow('VESSEL', v.name || 'UNKNOWN');
+    html += dataRow('TYPE', v.type || '—');
+    html += dataRow('DESTINATION', v.destination || '—');
+    html += dataRow('POSITIONS (6HR)', t.positions_received ?? '—', 'amber');
+    html += dataRow('REPORTING GAP', `${t.reporting_gap_pct ?? 0}%`, (t.reporting_gap_pct||0) > 30 ? 'red' : 'green');
+    html += dataRow('AVG SPEED', `${t.avg_speed_kts ?? 0} kts`, (t.avg_speed_kts||0) < 2 ? 'amber' : 'green');
+    html += dataRow('AIS INTEGRITY', data.ais_integrity || '—', data.ais_integrity === 'LIVE' ? 'green' : data.ais_integrity === 'SIMULATED' ? 'amber' : 'red');
+    const lp = t.last_position || {};
+    if (lp.lat) { html += dataRow('LAST LAT', lp.lat); html += dataRow('LAST LON', lp.lon); html += dataRow('LAST SPEED', `${lp.speed_kts} kts`); }
+    addIntel(`Track: ${v.name || currentMmsi} — ${t.positions_received||0} positions, gap ${t.reporting_gap_pct||0}%`, (t.reporting_gap_pct||0) > 50 ? 'red' : 'blue');
+  }
+
+  // ── classify_vessel ──
+  else if (toolname === 'classify_vessel') {
+    html += dataRow('VESSEL', data.vessel_name || '—');
+    html += dataRow('CLASSIFICATION', data.classification, 'amber');
+    html += dataRow('ACTIVITY', data.activity_pattern);
+    html += riskBar('IDENTITY CONFIDENCE', data.identity_confidence || 0);
+    html += dataRow('DB MATCHES', `${data.database_matches||0} / ${(data.databases_checked||[]).length}`, (data.database_matches||0) > 0 ? 'green' : 'red');
+    html += dataRow('FLAG VERIFIED', data.flag_state_verified ? 'YES' : 'NO', data.flag_state_verified ? 'green' : 'red');
+    html += dataRow('VOI WATCHLIST', data.on_voi_watchlist ? 'YES' : 'NO', data.on_voi_watchlist ? 'red' : 'green');
+    html += dataRow('RECOMMENDED', data.recommended_action, alertClass);
+    addIntel(`Classified: ${data.vessel_name||currentMmsi} — ${data.classification} — ${alertLevel}`, alertClass);
+  }
+
+  // ── flag_anomaly ──
+  else if (toolname === 'flag_anomaly') {
+    html += dataRow('VESSEL', data.vessel_name || '—');
+    html += dataRow('ANOMALIES', data.anomalies_detected, (data.anomalies_detected||0) > 0 ? 'red' : 'green');
+    if ((data.anomalies||[]).length > 0) {
+      html += `<div class="section-divider">ANOMALIES</div>`;
+      data.anomalies.forEach(a => {
+        html += `<div class="anomaly-item"><div class="anomaly-type">◉ ${a.type}</div><div class="anomaly-desc">${a.description}</div><div class="anomaly-confidence">CONFIDENCE: ${a.confidence}%</div></div>`;
+      });
+    }
+    html += dataRow('RESPONSE', data.recommended_response, alertClass);
+    html += dataRow('AUTO ESCALATE', data.auto_escalate_to_ops ? 'YES' : 'NO', data.auto_escalate_to_ops ? 'red' : 'green');
+    if ((data.anomalies_detected||0) > 0) { voiCount++; document.getElementById('stat-voi').textContent = voiCount; }
+    addIntel(`Anomaly: ${data.vessel_name||currentMmsi} — ${data.anomalies_detected||0} detected`, alertClass);
+  }
+
+  // ── get_risk_score ──
+  else if (toolname === 'get_risk_score') {
+    html += dataRow('VESSEL', data.vessel_name || '—');
+    html += riskBar('RISK SCORE', data.risk_score || 0);
+    html += dataRow('RISK LEVEL', data.risk_level, alertClass);
+    html += dataRow('VOI RANKING', data.voi_ranking, alertClass);
+    html += dataRow('TOP FACTOR', data.top_contributing_factor, 'amber');
+    html += dataRow('ACTION', data.recommended_action, alertClass);
+    if ((data.risk_score||0) > 50) { voiCount = Math.max(voiCount, 1); document.getElementById('stat-voi').textContent = voiCount; }
+    addIntel(`Risk: ${data.vessel_name||currentMmsi} — ${data.risk_score||0}/100 ${data.risk_level}`, alertClass);
+  }
+
+  // ── search_pans_data ──
+  else if (toolname === 'search_pans_data') {
+    html += dataRow('RESULTS', data.results_found, (data.results_found||0) > 0 ? 'amber' : 'green');
+    html += dataRow('DATABASE', `${data.total_pans_in_db||0} notices`);
+    if ((data.results||[]).length > 0) {
+      html += `<div class="section-divider">MATCHING PANS NOTICES</div>`;
+      data.results.forEach(p => {
+        html += `<div class="pans-item"><div class="pans-id">${p.pans_id}</div><div class="pans-title">${p.title}</div><div class="pans-area">◈ ${p.area}</div><div class="pans-detail">${p.details}</div><div class="pans-valid">VALID: ${p.valid_from} → ${p.valid_to} · ${p.authority}</div></div>`;
+      });
+    }
+    addIntel(`PANS: ${data.results_found||0} notices found`, (data.results_found||0) > 0 ? 'amber' : 'blue');
+  }
+
+  // ── investigate_vessel ──
+  else if (toolname === 'investigate_vessel') {
+    const r = data.risk_assessment || {};
+    const v = data.vessel_identity || {};
+    if (data.auto_escalated) {
+      html = `<div class="escalation-banner"><div class="escalation-icon">◉</div><div class="escalation-text">AUTO-ESCALATED TO OPS · MRCC NOTIFIED · PRIORITY 1 — IMMEDIATE</div></div>` + html;
+    }
+    html += dataRow('INVESTIGATION ID', data.investigation_id, 'amber');
+    html += dataRow('VESSEL', v.name || '—');
+    html += dataRow('MMSI', v.mmsi || '—');
+    html += dataRow('FLAG', v.flag || '—', (v.flag === 'UNVERIFIED') ? 'red' : 'green');
+    html += riskBar('RISK SCORE', r.score || 0);
+    html += dataRow('RISK LEVEL', r.level || '—', alertClass);
+    html += dataRow('VOI RANKING', r.voi_ranking || '—', alertClass);
+    if ((data.anomalies||[]).length > 0) {
+      html += `<div class="section-divider">ANOMALIES</div>`;
+      data.anomalies.forEach(a => { html += `<div class="anomaly-item"><div class="anomaly-type">◉ ${a.type}</div><div class="anomaly-desc">${a.description}</div><div class="anomaly-confidence">CONFIDENCE: ${a.confidence}%</div></div>`; });
+    }
+    if ((data.factors_of_suspicion||[]).length > 0) {
+      html += `<div class="section-divider">FACTORS OF SUSPICION</div>`;
+      data.factors_of_suspicion.forEach(f => { html += `<div style="padding:4px 0;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border2);display:flex;gap:8px"><span style="color:var(--red)">◉</span>${f}</div>`; });
+    }
+    if ((data.recommended_actions||[]).length > 0) {
+      html += `<div class="section-divider">RECOMMENDED ACTIONS</div>`;
+      data.recommended_actions.forEach(a => {
+        const p = a.split(': ')[0];
+        const t = a.split(': ').slice(1).join(': ');
+        const pc = p === 'IMMEDIATE' ? 'immediate' : p === 'HIGH' ? 'high' : p === 'MEDIUM' ? 'medium' : 'routine';
+        html += `<div class="action-item"><span class="action-priority priority-${pc}">${p}</span><span>${t}</span></div>`;
+      });
+    }
+    html += dataRow('VESSELS IN ZONE', data.live_vessels_in_zone || 0, 'amber');
+    voiCount = Math.max(voiCount, 1); document.getElementById('stat-voi').textContent = voiCount;
+    addIntel(`MDA COMPLETE: ${v.name||v.mmsi} — ${r.level} — ${r.voi_ranking}`, 'red');
+  }
+
+  html += '</div>';
+  card.innerHTML = html;
+  area.insertBefore(card, area.firstChild);
+}
+
+function dataRow(key, val, valClass) {
+  return `<div class="data-row"><span class="data-key">${key}</span><span class="data-val ${valClass||''}">${val??'—'}</span></div>`;
+}
+
+function riskBar(label, score) {
+  const pct = Math.min(score, 100);
+  const color = pct > 75 ? 'var(--red)' : pct > 50 ? 'var(--amber)' : pct > 25 ? 'var(--blue)' : 'var(--green)';
+  return `<div class="risk-bar-container"><div class="risk-bar-label"><span class="data-key">${label}</span><span class="data-val" style="color:${color}">${pct}/100</span></div><div class="risk-bar-track"><div class="risk-bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+}
+
+function addIntel(text, type) {
+  const feed = document.getElementById('intel-feed');
+  const n = new Date();
+  const ts = `${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;
+  const empty = feed.querySelector('div[style*="AWAITING"]');
+  if (empty) empty.remove();
+  const item = document.createElement('div');
+  item.className = `intel-item ${type}`;
+  item.innerHTML = `<div class="intel-time">${ts}</div><div class="intel-text">${text}</div>`;
+  feed.insertBefore(item, feed.firstChild);
+  intelCount++;
+  document.getElementById('intel-count').textContent = `${intelCount} EVENTS`;
+}
+
+// ── Dark vessel blip animation ─────────────────────────────────────────────
+setInterval(() => {
+  const b = document.getElementById('blip-419009999');
+  if (b) { b.style.left = (43 + Math.sin(Date.now()/3000) * 2) + '%'; b.style.top = (23 + Math.cos(Date.now()/4000) * 2) + '%'; }
+}, 100);
+
+// ── Auto-refresh vessels every 60s ────────────────────────────────────────
+refreshVessels();
+setInterval(refreshVessels, 60000);
+</script>
+</body>
+</html>
