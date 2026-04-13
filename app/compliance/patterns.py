@@ -33,7 +33,7 @@ SERVICE_NUMBER_REGEX = re.compile(
 
 # ── Badge/ID number pattern ───────────────────────────────────────────────────
 BADGE_REGEX = re.compile(
-    r'\b\d{3,6}[-/]\d{2,6}(?:[-/]\d{2,6})?\b'
+    r'\b\d{3,6}[-]\d{2,6}(?:[-]\d{2,6})?\b'
 )
 
 # ── Badge with explicit context keyword ───────────────────────────────────────

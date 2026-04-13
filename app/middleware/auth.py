@@ -23,6 +23,7 @@ PUBLIC_PATHS = {
     "/",
     "/health",
     "/health/ready",
+    "/frontend",
     "/docs",
     "/redoc",
     "/openapi.json",
@@ -65,7 +66,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # ── Public paths — pass through immediately ───────────────────────────
-        if path in PUBLIC_PATHS:
+        if path in PUBLIC_PATHS or path.startswith("/frontend/"):
             return await call_next(request)
 
         # ── Protected paths — require auth ────────────────────────────────────
