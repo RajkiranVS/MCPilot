@@ -41,14 +41,23 @@ AISSTREAM_API_KEY = os.environ.get("AISSTREAM_API_KEY", "")
 AISSTREAM_URL     = "wss://stream.aisstream.io/v0/stream"
 
 # Indian coastal waters bounding box
-# Arabian Sea + Bay of Bengal + Lakshadweep + Andaman
-INDIA_BBOX =  [[6.0, 66.0], [24.0, 98.0]]
+# Arabian Sea + Bay of Bengal + Lakshadweep + Andaman (no aisstream.io receivers here)
+# We use a global subscription instead and filter for Indian-flagged vessels (MMSI 419xxx)
+# or any vessel physically in Indian waters if receivers ever come online.
+INDIA_BBOX    = [[6.0, 66.0], [24.0, 98.0]]
+GLOBAL_BBOX   = [[-90.0, -180.0], [90.0, 180.0]]
 
 # ── Live vessel store ─────────────────────────────────────────────────────────
 _live_vessels:  dict[str, dict]   = {}
 _track_history: dict[str, deque]  = defaultdict(lambda: deque(maxlen=50))
 _ais_lock       = threading.Lock()
 _stream_running = False
+
+# ── AIS stream diagnostics ────────────────────────────────────────────────────
+_ais_ws_connected    = False
+_ais_msgs_received   = 0
+_ais_last_error: str = ""
+_ais_first_msg: str  = ""
 
 # ── NAV status codes ──────────────────────────────────────────────────────────
 NAV_STATUS = {
@@ -130,27 +139,36 @@ def _run_ais_loop():
 
 
 async def _ais_stream_worker():
+    global _ais_ws_connected, _ais_msgs_received, _ais_last_error, _ais_first_msg
     subscription = {
         "APIKey":         AISSTREAM_API_KEY,
-        "BoundingBoxes":  [[INDIA_BBOX[0], INDIA_BBOX[1]]],
+        "BoundingBoxes":  [[GLOBAL_BBOX[0], GLOBAL_BBOX[1]]],
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     }
     while True:
         try:
             async with websockets.connect(AISSTREAM_URL, ping_interval=20) as ws:
+                _ais_ws_connected = True
                 await ws.send(json.dumps(subscription))
                 async for raw in ws:
+                    _ais_msgs_received += 1
+                    if _ais_msgs_received == 1:
+                        raw_str = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+                        _ais_first_msg = raw_str[:500]
                     try:
                         _process_ais_message(json.loads(raw))
-                    except Exception:
-                        pass
-        except Exception:
+                    except Exception as e:
+                        _ais_last_error = f"parse: {e}"
+        except Exception as e:
+            _ais_ws_connected = False
+            _ais_last_error = str(e)
             await asyncio.sleep(10)
 
 
 def _process_ais_message(msg: dict):
+    global _ais_last_error
     msg_type = msg.get("MessageType", "")
-    metadata = msg.get("Metadata", {})
+    metadata = msg.get("MetaData", {})
 
     if msg_type == "PositionReport":
         pos  = msg.get("Message", {}).get("PositionReport", {})
@@ -168,14 +186,48 @@ def _process_ais_message(msg: dict):
     if not mmsi or mmsi == "0":
         return
 
-    import sys
-    print(f"AIS RX: {msg_type} MMSI:{mmsi}", file=sys.stderr, flush=True)
-
     # Only keep vessels in Indian coastal waters or Indian-flagged
     in_indian_waters = (6.0 <= lat <= 24.0 and 66.0 <= lon <= 98.0)
     is_indian_vessel = mmsi.startswith("419")
     if not in_indian_waters and not is_indian_vessel:
         return
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    with _ais_lock:
+        vessel = _live_vessels.setdefault(mmsi, {
+            "mmsi": mmsi, "name": "UNKNOWN", "flag": "Unknown",
+            "type": "Unknown", "imo": "N/A", "call_sign": "—",
+            "lat": lat, "lon": lon, "speed": 0, "course": 0,
+            "nav_status": "UNKNOWN", "destination": "UNKNOWN",
+            "status": "ACTIVE", "last_seen": now_iso,
+        })
+
+        if msg_type == "PositionReport":
+            pos = msg.get("Message", {}).get("PositionReport", {})
+            vessel["lat"]        = lat
+            vessel["lon"]        = lon
+            vessel["speed"]      = round(pos.get("Sog", 0), 1)
+            vessel["course"]     = round(pos.get("Cog", 0), 1)
+            vessel["nav_status"] = NAV_STATUS.get(pos.get("NavigationalStatus", 15), "UNKNOWN")
+            vessel["last_seen"]  = now_iso
+
+        elif msg_type == "ShipStaticData":
+            static = msg.get("Message", {}).get("ShipStaticData", {})
+            vessel["name"]        = metadata.get("ShipName", static.get("Name", vessel["name"])).strip() or vessel["name"]
+            vessel["call_sign"]   = static.get("CallSign", vessel["call_sign"]).strip() or vessel["call_sign"]
+            vessel["imo"]         = str(static.get("ImoNumber", vessel["imo"])) if static.get("ImoNumber") else vessel["imo"]
+            vessel["destination"] = static.get("Destination", vessel["destination"]).strip() or vessel["destination"]
+            vessel["type"]        = _parse_vessel_type(static.get("Type", 0)) if static.get("Type") else vessel["type"]
+            vessel["flag"]        = "India" if mmsi.startswith("419") else vessel["flag"]
+            vessel["last_seen"]   = now_iso
+
+        _track_history[mmsi].append({
+            "lat": vessel["lat"], "lon": vessel["lon"],
+            "speed_kts": vessel["speed"], "course_deg": vessel["course"],
+            "nav_status": vessel["nav_status"], "timestamp": now_iso,
+        })
+        print(f"[AIS] Stored MMSI={mmsi} total_live={len(_live_vessels)}", file=sys.stderr, flush=True)
 
 
 
@@ -733,10 +785,20 @@ def list_vessels_in_zone(zone: str = "ALL") -> dict:
         "zone":          zone,
         "total_tracked": len(vessels),
         "vessels":       vessels[:50],
-        "data_source":   "aisstream.io — live Indian coastal AIS" if is_live else "Simulated — Indian coastal scenario",
+        "data_source":   "aisstream.io — live (Indian-flagged vessels + coastal coverage)" if is_live else "Simulated — Indian coastal scenario",
         "live_feed":     is_live,
         "bbox":          "6°N-24°N, 66°E-98°E (Arabian Sea + Bay of Bengal)",
         "timestamp":     datetime.now(timezone.utc).isoformat(),
+        "_debug": {
+            "api_key_set":       bool(AISSTREAM_API_KEY),
+            "stream_running":    _stream_running,
+            "ws_connected":      _ais_ws_connected,
+            "msgs_received":     _ais_msgs_received,
+            "live_vessel_count": len(_live_vessels),
+            "last_error":        _ais_last_error,
+            "first_msg_sample":  _ais_first_msg,
+            "uptime_secs":       round(time.time() - _startup_time, 1),
+        },
     }
 
 

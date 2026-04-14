@@ -174,4 +174,5 @@ async def root():
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return JSONResponse(status_code=204, content={})
+    from fastapi.responses import Response
+    return Response(status_code=204)
