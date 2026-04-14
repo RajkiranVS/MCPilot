@@ -6,15 +6,17 @@ Supports explicit, semantic, and hybrid routing modes.
 import time
 import asyncio
 import hashlib
-from datetime import datetime, timezone, timedelta
-from app.compliance.pipeline import scan_input, scan_output
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from datetime import datetime, timezone, timedelta
+from app.compliance.audit import write_audit_record
+from app.compliance.pipeline import scan_input, scan_output
+from app.compliance.classification import registry as clearance_registry
+from app.compliance.classification import registry as clearance_registry
 from app.core.logging import get_logger
 from app.middleware.rate_limit import limiter
 from app.rag.router import resolve_route, RoutingMode
 from app.core.config import get_settings
-from app.compliance.audit import write_audit_record
 from app.core.metrics import ToolCallEvent
 
 settings = get_settings()
@@ -147,6 +149,71 @@ async def invoke_tool(
             f"tool={route.tool_name} "
             f"tenant={getattr(request.state, 'tenant_id', 'unknown')}"
         )
+
+
+    # ── Classification gate ───────────────────────────────────────────────────
+    tenant_id = getattr(request.state, "tenant_id", "unknown")
+    gating = clearance_registry.gate(
+        requestor_tenant=tenant_id,
+        target_server=route.server_id,
+    )
+    if gating.denied:
+        logger.warning(
+            f"CLASSIFICATION DENIED | tenant={tenant_id} "
+            f"server={route.server_id} tool={route.tool_name} "
+            f"clearance={gating.requestor_clearance.name} "
+            f"required={gating.data_classification.name} "
+            f"hash={gating.audit_hash}"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error":        "CLASSIFICATION_DENIED",
+                "reason":       gating.reason,
+                "clearance":    gating.requestor_clearance.name,
+                "required":     gating.data_classification.name,
+                "audit_hash":   gating.audit_hash,
+            }
+        )
+    if gating.requires_redaction:
+        logger.info(
+            f"CLASSIFICATION REDACT | tenant={tenant_id} "
+            f"server={route.server_id} clearance={gating.requestor_clearance.name} "
+            f"hash={gating.audit_hash}"
+        )
+
+    # ── Classification gate ───────────────────────────────────────────────────
+    tenant_id = getattr(request.state, "tenant_id", "unknown")
+    gating = clearance_registry.gate(
+        requestor_tenant=tenant_id,
+        target_server=route.server_id,
+    )
+    if gating.denied:
+        logger.warning(
+            f"CLASSIFICATION DENIED | tenant={tenant_id} "
+            f"server={route.server_id} tool={route.tool_name} "
+            f"clearance={gating.requestor_clearance.name} "
+            f"required={gating.data_classification.name} "
+            f"hash={gating.audit_hash}"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error":      "CLASSIFICATION_DENIED",
+                "reason":     gating.reason,
+                "clearance":  gating.requestor_clearance.name,
+                "required":   gating.data_classification.name,
+                "audit_hash": gating.audit_hash,
+            }
+        )
+    if gating.requires_redaction:
+        logger.info(
+            f"CLASSIFICATION REDACT | tenant={tenant_id} "
+            f"server={route.server_id} "
+            f"clearance={gating.requestor_clearance.name} "
+            f"hash={gating.audit_hash}"
+        )
+
 
     # ── Execute tool call with redacted parameters ────────────────────────────
     try:
