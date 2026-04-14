@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCPilot — Classification & Clearance Registry</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;600;700;900&display=swap');
+
+  :root {
+    --bg:       #04080F;
+    --bg2:      #070D18;
+    --bg3:      #0A1220;
+    --panel:    #0C1628;
+    --border:   #162840;
+    --border2:  #0D1E30;
+
+    --pass:     #00FF88;
+    --pass2:    #00CC66;
+    --pass-bg:  rgba(0,255,136,0.08);
+    --redact:   #F5A623;
+    --redact2:  #C88010;
+    --redact-bg:rgba(245,166,35,0.08);
+    --deny:     #FF3344;
+    --deny2:    #CC1122;
+    --deny-bg:  rgba(255,51,68,0.08);
+
+    --ts:       #FF3344;
+    --s:        #FF8800;
+    --c:        #00AAFF;
+    --r:        #F5A623;
+    --u:        #00FF88;
+
+    --white:    #E8F4FF;
+    --muted:    #3A5A7A;
+    --muted2:   #1A3050;
+
+    --font-mono: 'DM Mono', monospace;
+    --font-body: 'Outfit', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--white);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid noise texture */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,170,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,170,255,0.02) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none; z-index: 0;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  @keyframes pulse-border {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.2); }
+    50%     { box-shadow: 0 0 0 4px rgba(0,255,136,0); }
+  }
+  @keyframes scan {
+    0%   { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+  }
+
+  /* Scanline */
+  .scanline {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(0,170,255,0.06), transparent);
+    animation: scan 6s linear infinite;
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; height: 60px;
+    background: rgba(4,8,15,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .logo-ring {
+    width: 36px; height: 36px;
+    border: 1.5px solid var(--pass);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .logo-ring::before {
+    content: '';
+    position: absolute; inset: 5px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,255,136,0.2);
+  }
+  .logo-dot { width: 6px; height: 6px; background: var(--pass); border-radius: 50%; }
+  .logo-text { font-family: var(--font-body); font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+  .logo-text span { color: var(--pass); }
+  .logo-sub { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 3px; margin-top: 1px; }
+
+  .topbar-center {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--pass); letter-spacing: 3px;
+    padding: 4px 12px;
+    border: 1px solid rgba(0,255,136,0.2);
+    background: rgba(0,255,136,0.04);
+  }
+
+  .topbar-right { display: flex; align-items: center; gap: 20px; }
+  .status-pill { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .sdot { width: 6px; height: 6px; border-radius: 50%; }
+  .sdot.green { background: var(--pass); animation: blink 2s infinite; }
+  .clock { font-family: var(--font-mono); font-size: 13px; color: var(--pass); letter-spacing: 1px; }
+
+  /* ── MAIN ── */
+  .main { position: relative; z-index: 1; padding: 32px; max-width: 1600px; margin: 0 auto; }
+
+  /* ── PAGE HEADER ── */
+  .page-header {
+    margin-bottom: 32px;
+    animation: fadeUp 0.4s ease both;
+  }
+  .page-title {
+    font-size: 32px; font-weight: 900; letter-spacing: -0.5px;
+    line-height: 1.1; margin-bottom: 8px;
+  }
+  .page-title em { font-style: normal; color: var(--pass); }
+  .page-subtitle { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 2px; }
+
+  /* ── LEGEND ── */
+  .legend {
+    display: flex; gap: 8px; margin-bottom: 24px;
+    animation: fadeUp 0.4s 0.1s ease both;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px;
+  }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── GATE TESTER ── */
+  .gate-tester {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 20px 24px;
+    margin-bottom: 28px;
+    animation: fadeUp 0.4s 0.15s ease both;
+  }
+  .section-label {
+    font-family: var(--font-mono); font-size: 9px; color: var(--pass);
+    letter-spacing: 3px; margin-bottom: 14px;
+  }
+  .gate-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; }
+  .form-select {
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--white); font-family: var(--font-mono); font-size: 12px;
+    padding: 8px 12px; outline: none; min-width: 180px;
+    transition: border-color 0.2s; cursor: pointer;
+  }
+  .form-select:focus { border-color: var(--pass); }
+  .form-select option { background: var(--bg3); }
+
+  .btn-gate {
+    background: var(--pass); border: none; color: var(--bg);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    padding: 9px 20px; cursor: pointer; letter-spacing: 1px;
+    transition: all 0.15s; text-transform: uppercase;
+  }
+  .btn-gate:hover { background: var(--pass2); }
+
+  .gate-result {
+    margin-top: 16px; padding: 14px 16px;
+    border-left: 3px solid var(--border);
+    font-family: var(--font-mono); font-size: 11px;
+    display: none;
+    animation: fadeUp 0.2s ease both;
+  }
+  .gate-result.pass   { border-color: var(--pass); background: var(--pass-bg); }
+  .gate-result.redact { border-color: var(--redact); background: var(--redact-bg); }
+  .gate-result.deny   { border-color: var(--deny); background: var(--deny-bg); }
+  .gate-result-action { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  .gate-result-reason { color: var(--muted); line-height: 1.5; margin-bottom: 8px; }
+  .gate-result-hash   { font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+
+  /* ── TWO COLUMN LAYOUT ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    animation: fadeUp 0.4s ease both;
+  }
+  .card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-title { font-family: var(--font-mono); font-size: 10px; color: var(--pass); letter-spacing: 3px; }
+  .card-count { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+  .card-body { padding: 16px 18px; }
+
+  /* Tenant rows */
+  .tenant-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; margin-bottom: 6px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    transition: border-color 0.15s; cursor: default;
+  }
+  .tenant-row:hover { border-color: var(--border); }
+  .tenant-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .tenant-unit { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+  .clearance-badge {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px;
+    padding: 3px 8px; border: 1px solid; font-weight: 500;
+  }
+
+  /* Server rows */
+  .server-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; margin-bottom: 6px;
+    background: var(--bg3); border: 1px solid var(--border2);
+  }
+  .server-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .server-desc { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 0.5px; }
+  .class-badge {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px;
+    padding: 3px 8px; border: 1px solid; font-weight: 500;
+  }
+
+  /* ── ACCESS MATRIX ── */
+  .matrix-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    animation: fadeUp 0.4s 0.2s ease both;
+  }
+  .matrix-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .matrix-scroll { overflow-x: auto; padding: 18px; }
+
+  table.matrix {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 700px;
+  }
+
+  table.matrix th {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px;
+    color: var(--muted); padding: 8px 10px;
+    text-align: left; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  table.matrix th.server-col {
+    text-align: center; writing-mode: vertical-lr;
+    transform: rotate(180deg);
+    height: 90px; vertical-align: bottom; padding-bottom: 10px;
+  }
+
+  table.matrix td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border2);
+    vertical-align: middle;
+  }
+
+  .matrix-tenant { white-space: nowrap; }
+  .matrix-tenant-name { font-size: 12px; font-weight: 600; }
+  .matrix-tenant-clearance { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-top: 1px; }
+
+  .matrix-cell {
+    text-align: center; width: 80px;
+  }
+  .cell-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 2px;
+    font-size: 13px; cursor: default;
+    transition: transform 0.15s;
+    border: 1px solid transparent;
+  }
+  .cell-icon:hover { transform: scale(1.15); }
+  .cell-pass   { background: var(--pass-bg);   border-color: rgba(0,255,136,0.2);  color: var(--pass); }
+  .cell-redact { background: var(--redact-bg); border-color: rgba(245,166,35,0.2); color: var(--redact); }
+  .cell-deny   { background: var(--deny-bg);   border-color: rgba(255,51,68,0.2);  color: var(--deny); }
+
+  .loading-row td {
+    text-align: center; padding: 40px;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--muted); letter-spacing: 2px;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--muted2); }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-ring"><div class="logo-dot"></div></div>
+    <div>
+      <div class="logo-text">MC<span>Pilot</span></div>
+      <div class="logo-sub">SOVEREIGN AI GATEWAY</div>
+    </div>
+  </div>
+  <div class="topbar-center">◈ CLASSIFICATION & CLEARANCE REGISTRY</div>
+  <div class="topbar-right">
+    <div class="status-pill">
+      <div class="sdot green"></div>
+      <span id="gateway-status">GATEWAY ONLINE</span>
+    </div>
+    <div class="clock" id="clock">--:--:-- UTC</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <div class="page-header">
+    <div class="page-title">Need-to-Know <em>Enforcement</em><br>Access Control Matrix</div>
+    <div class="page-subtitle">CLASSIFICATION-AWARE GATING · CRYPTOGRAPHIC AUDIT · REAL-TIME DECISIONS</div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--pass)"></div>PASS — Full access granted</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--redact)"></div>REDACT — Partial access, sensitive fields removed</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--deny)"></div>DENY — Access denied, clearance insufficient</div>
+    <div class="legend-item" style="margin-left:auto"><div class="legend-dot" style="background:var(--ts)"></div>TOP SECRET</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--s)"></div>SECRET</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--c)"></div>CONFIDENTIAL</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--r)"></div>RESTRICTED</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--u)"></div>UNCLASSIFIED</div>
+  </div>
+
+  <!-- GATE TESTER -->
+  <div class="gate-tester">
+    <div class="section-label">◈ LIVE GATE TEST — simulate a classification decision</div>
+    <div class="gate-form">
+      <div class="form-group">
+        <div class="form-label">REQUESTOR TENANT</div>
+        <select class="form-select" id="tenant-select">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <div class="form-label">TARGET SERVER</div>
+        <select class="form-select" id="server-select">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <div class="form-label">DATA CLASSIFICATION OVERRIDE</div>
+        <select class="form-select" id="class-select">
+          <option value="">— use server default —</option>
+          <option value="UNCLASSIFIED">UNCLASSIFIED</option>
+          <option value="RESTRICTED">RESTRICTED</option>
+          <option value="CONFIDENTIAL">CONFIDENTIAL</option>
+          <option value="SECRET">SECRET</option>
+          <option value="TOP_SECRET">TOP SECRET</option>
+        </select>
+      </div>
+      <button class="btn-gate" onclick="runGateTest()">▶ TEST GATE</button>
+    </div>
+    <div class="gate-result" id="gate-result">
+      <div class="gate-result-action" id="gate-action"></div>
+      <div class="gate-result-reason" id="gate-reason"></div>
+      <div class="gate-result-hash" id="gate-hash"></div>
+    </div>
+  </div>
+
+  <!-- TWO COLUMN: TENANTS + SERVERS -->
+  <div class="two-col">
+    <div class="card" style="animation-delay:0.2s">
+      <div class="card-header">
+        <div class="card-title">◈ TENANT CLEARANCES</div>
+        <div class="card-count" id="tenant-count">LOADING</div>
+      </div>
+      <div class="card-body" id="tenant-list">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-align:center;padding:20px;letter-spacing:2px">LOADING...</div>
+      </div>
+    </div>
+
+    <div class="card" style="animation-delay:0.25s">
+      <div class="card-header">
+        <div class="card-title">◈ SERVER CLASSIFICATIONS</div>
+        <div class="card-count" id="server-count">LOADING</div>
+      </div>
+      <div class="card-body" id="server-list">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-align:center;padding:20px;letter-spacing:2px">LOADING...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACCESS MATRIX -->
+  <div class="matrix-section">
+    <div class="matrix-header">
+      <div class="card-title">◈ ACCESS CONTROL MATRIX — need-to-know enforcement</div>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted)" id="matrix-status">LOADING</div>
+    </div>
+    <div class="matrix-scroll">
+      <table class="matrix" id="matrix-table">
+        <thead id="matrix-head"></thead>
+        <tbody id="matrix-body">
+          <tr class="loading-row"><td colspan="10">LOADING MATRIX...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_KEY = 'mcpilot-dev-key-001';
+const BASE    = 'http://localhost:8000';
+
+const LEVEL_COLOURS = {
+  UNCLASSIFIED: 'var(--u)',
+  RESTRICTED:   'var(--r)',
+  CONFIDENTIAL: 'var(--c)',
+  SECRET:       'var(--s)',
+  TOP_SECRET:   'var(--ts)',
+};
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+function updateClock() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    `${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── Fetch helpers ──────────────────────────────────────────────────────────
+async function apiFetch(path) {
+  const r = await fetch(`${BASE}${path}`, { headers: { 'X-API-Key': API_KEY } });
+  return r.json();
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+// ── Load tenants ───────────────────────────────────────────────────────────
+async function loadTenants() {
+  const data = await apiFetch('/gateway/classification/tenants');
+  document.getElementById('tenant-count').textContent = `${data.total} TENANTS`;
+
+  // Populate select
+  const sel = document.getElementById('tenant-select');
+  sel.innerHTML = data.tenants.map(t =>
+    `<option value="${t.tenant_id}">${t.name} (${t.clearance})</option>`
+  ).join('');
+
+  // Render list
+  const list = document.getElementById('tenant-list');
+  list.innerHTML = data.tenants.map(t => {
+    const col = LEVEL_COLOURS[t.clearance] || 'var(--muted)';
+    return `<div class="tenant-row">
+      <div>
+        <div class="tenant-name">${t.name}</div>
+        <div class="tenant-unit">${t.unit} · ${t.tenant_id}</div>
+      </div>
+      <div class="clearance-badge" style="color:${col};border-color:${col};background:${col}18">
+        ${t.clearance.replace('_',' ')}
+      </div>
+    </div>`;
+  }).join('');
+
+  return data.tenants;
+}
+
+// ── Load servers ───────────────────────────────────────────────────────────
+async function loadServers() {
+  const data = await apiFetch('/gateway/classification/servers');
+  document.getElementById('server-count').textContent = `${data.total} SERVERS`;
+
+  // Populate select
+  const sel = document.getElementById('server-select');
+  sel.innerHTML = data.servers.map(s =>
+    `<option value="${s.server_id}">${s.name} (${s.classification})</option>`
+  ).join('');
+
+  // Render list
+  const list = document.getElementById('server-list');
+  list.innerHTML = data.servers.map(s => {
+    const col = LEVEL_COLOURS[s.classification] || 'var(--muted)';
+    return `<div class="server-row">
+      <div>
+        <div class="server-name">${s.name}</div>
+        <div class="server-desc">${s.description}</div>
+      </div>
+      <div class="class-badge" style="color:${col};border-color:${col};background:${col}18">
+        ${s.classification.replace('_',' ')}
+      </div>
+    </div>`;
+  }).join('');
+
+  return data.servers;
+}
+
+// ── Load matrix ────────────────────────────────────────────────────────────
+async function loadMatrix() {
+  const data = await apiFetch('/gateway/classification/matrix');
+  const servers = data.servers;
+
+  // Build header
+  const head = document.getElementById('matrix-head');
+  head.innerHTML = `<tr>
+    <th style="min-width:180px">TENANT / UNIT</th>
+    <th>CLEARANCE</th>
+    ${servers.map(s => `<th class="server-col">${s.toUpperCase()}</th>`).join('')}
+  </tr>`;
+
+  // Build body
+  const body = document.getElementById('matrix-body');
+  body.innerHTML = data.matrix.map(row => {
+    const col = LEVEL_COLOURS[row.clearance] || 'var(--muted)';
+    const cells = servers.map(s => {
+      const access = row.access[s];
+      const icon   = access.action === 'PASS'   ? '✓'
+                   : access.action === 'REDACT' ? '⚠'
+                   : '✗';
+      const cls    = access.action === 'PASS'   ? 'cell-pass'
+                   : access.action === 'REDACT' ? 'cell-redact'
+                   : 'cell-deny';
+      const title  = `${row.tenant_id} → ${s}: ${access.action}`;
+      return `<td class="matrix-cell">
+        <span class="cell-icon ${cls}" title="${title}">${icon}</span>
+      </td>`;
+    }).join('');
+
+    return `<tr>
+      <td class="matrix-tenant">
+        <div class="matrix-tenant-name">${row.name}</div>
+        <div class="matrix-tenant-clearance">${row.tenant_id}</div>
+      </td>
+      <td>
+        <span style="font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:${col};padding:2px 6px;border:1px solid ${col};background:${col}18">
+          ${row.clearance.replace('_',' ')}
+        </span>
+      </td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  // Count stats
+  let pass = 0, redact = 0, deny = 0;
+  data.matrix.forEach(row => {
+    Object.values(row.access).forEach(a => {
+      if (a.action === 'PASS')   pass++;
+      if (a.action === 'REDACT') redact++;
+      if (a.action === 'DENY')   deny++;
+    });
+  });
+  document.getElementById('matrix-status').textContent =
+    `${pass} PASS · ${redact} REDACT · ${deny} DENY`;
+}
+
+// ── Gate test ──────────────────────────────────────────────────────────────
+async function runGateTest() {
+  const tenant = document.getElementById('tenant-select').value;
+  const server = document.getElementById('server-select').value;
+  const cls    = document.getElementById('class-select').value;
+
+  if (!tenant || !server) return;
+
+  const body = { requestor_tenant: tenant, target_server: server };
+  if (cls) body.data_classification = cls;
+
+  const data = await apiPost('/gateway/classification/gate', body);
+  const d    = data.decision;
+
+  const resultEl = document.getElementById('gate-result');
+  const action   = d.action;
+  resultEl.className = `gate-result ${action.toLowerCase()}`;
+  resultEl.style.display = 'block';
+
+  const actionIcon = action === 'PASS' ? '✓ ACCESS GRANTED' : action === 'REDACT' ? '⚠ PARTIAL ACCESS — FIELDS REDACTED' : '✗ ACCESS DENIED';
+  document.getElementById('gate-action').textContent = `${actionIcon}`;
+  document.getElementById('gate-action').style.color =
+    action === 'PASS' ? 'var(--pass)' : action === 'REDACT' ? 'var(--redact)' : 'var(--deny)';
+  document.getElementById('gate-reason').textContent  = d.reason;
+  document.getElementById('gate-hash').textContent    =
+    `AUDIT HASH: ${d.audit_hash} · ${d.requestor_clearance} → ${d.data_classification} · ${d.timestamp}`;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await Promise.all([loadTenants(), loadServers(), loadMatrix()]);
+  } catch(e) {
+    console.error('Init failed:', e);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
