@@ -45,6 +45,21 @@ _API_KEY_STORE: dict[str, dict] = {
         "tenant_id": "dev-tenant",
         "scopes":    ["gateway:invoke", "admin"],
     },
+    "mcpilot-navy-ops-001": {
+        "client_id": "navy-ops-client",
+        "tenant_id": "navy-ops",
+        "scopes":    ["gateway:invoke"],
+    },
+    "mcpilot-navy-intel-001": {
+        "client_id": "navy-intel-client",
+        "tenant_id": "navy-intel",
+        "scopes":    ["gateway:invoke"],
+    },
+    "mcpilot-icg-001": {
+        "client_id": "icg-watchkeeper-client",
+        "tenant_id": "icg-watchkeeper",
+        "scopes":    ["gateway:invoke"],
+    },
 }
 
 

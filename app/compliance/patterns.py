@@ -32,8 +32,10 @@ SERVICE_NUMBER_REGEX = re.compile(
 )
 
 # ── Badge/ID number pattern ───────────────────────────────────────────────────
+# Negative lookahead excludes ISO date prefixes (19xx- / 20xx-) so timestamps
+# like 2026-04-15 are not mistakenly flagged as badge numbers.
 BADGE_REGEX = re.compile(
-    r'\b\d{3,6}[-]\d{2,6}(?:[-]\d{2,6})?\b'
+    r'\b(?!(?:19|20)\d{2}[-/])\d{3,6}[-]\d{2,6}(?:[-]\d{2,6})?\b'
 )
 
 # ── Badge with explicit context keyword ───────────────────────────────────────
@@ -102,10 +104,17 @@ CALLSIGN_REGEX = re.compile(
     r'KILO|LIMA|MIKE|NOVEMBER|OSCAR|PAPA|QUEBEC|ROMEO|SIERRA|TANGO|'
     r'UNIFORM|VICTOR|WHISKEY|XRAY|YANKEE|ZULU|'
     r'SUNRAY|TIGER|NINER|GROUNDHOG|TACCOM|ROVER|RELAY|'
-    r'CONTROL|ZERO|MAIN'
-    r')(?:\s+\d{1,2}(?:[-/]\d{1,2})?)?\b',
+    r'ZERO|MAIN'
+    r')(?:\s+\d{1,2}(?:[-/]\d{1,2})?)?\b(?![-\w])',
     re.IGNORECASE
 )
+
+# Blocklist — patterns spaCy should never tag as PERSON
+NEVER_PERSON = [
+    "type-052", "type-054", "type-056", "type-071", "type-075",
+    "ssk", "ssn", "ssbn", "ddg", "ffg", "cvn", "lhd",
+    "p-8i", "mh-60", "ins", "uss", "hms", "pns",
+]
 
 # ── Rank + Name regex fallback ────────────────────────────────────────────────
 RANK_NAME_REGEX = re.compile(
@@ -122,7 +131,8 @@ RANK_NAME_REGEX = re.compile(
 
 # ── Military Time (24hr format) ───────────────────────────────────────────────
 MILITARY_TIME_REGEX = re.compile(
-    r'\b(?:[01]\d|2[0-3])[0-5]\d\s*(?:hours?|hrs?|zulu|local)?\b',
+    r'(?<![-\w])(?:[01]\d|2[0-3])[0-5]\d\s*(?:hours?|hrs?|zulu|local)\b'
+    r'|(?<![-\w])(?:[01]\d|2[0-3])[0-5]\d\b(?!\s*[-:T\w])',
     re.IGNORECASE
 )
 

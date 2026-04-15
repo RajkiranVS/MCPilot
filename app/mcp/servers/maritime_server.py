@@ -21,6 +21,7 @@ Run: python app/mcp/servers/maritime_server.py
 import asyncio
 import json
 import os
+import sys
 from dotenv import load_dotenv
 import threading
 import websockets

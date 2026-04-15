@@ -19,6 +19,72 @@ logger = get_logger(__name__)
 _nlp: Language | None = None
 
 
+@Language.component("military_blocklist")
+def military_blocklist(doc):
+    """
+    Removes PERSON tags from military/technical terms that spaCy
+    incorrectly identifies as names.
+    """
+    NEVER_PERSON = {
+        # Vessel type designators
+        "type-052", "type-052d", "type-054", "type-054a", "type-056",
+        "type-071", "type-075", "type-093", "type-094",
+        # Submarine/ship class codes
+        "ssk", "ssn", "ssbn", "ssbn-", "ddg", "ffg", "cvn", "lhd", "lpd",
+        # Aircraft designators
+        "p-8i", "p-8", "mh-60r", "mh-60", "uh-60", "ah-64",
+        # Ship prefixes and names that aren't people
+        "ins", "uss", "hms", "pns", "pla",
+        # Ship names and military unit names
+        "ins visakhapatnam", "ins vikrant", "ins kolkata",
+        "ins shivalik", "ins arihant", "ins trishul", "ins talwar",
+        "ins delhi", "ins mumbai", "ins chennai", "ins mysore",
+        # Military unit terms
+        "vlsm", "sloc", "emcon", "sosus", "sigint", "humint",
+        "satint", "imint", "masint", "osint",
+        # Common false positives
+        "control", "sierra", "oscar", "romeo", "victor",
+    }
+
+    # Token prefixes that always indicate a vessel name, not a person name.
+    # If any of these appear immediately before the entity, suppress PERSON.
+    VESSEL_PREFIXES = {
+        "ins", "uss", "hms", "pns", "hmcs", "js", "rss", "ots",
+        "mns", "bns", "rims", "sns", "lns", "cgs", "icgs",
+        "plan",  # People's Liberation Army Navy vessel
+        "vessel", "ship", "warship", "frigate", "destroyer",
+        "corvette", "submarine", "carrier", "tanker", "trawler",
+        "tugboat", "patrol", "boat", "craft",
+    }
+
+    new_ents = []
+    for ent in doc.ents:
+        if ent.label_ == "PERSON":
+            text_lower = ent.text.lower()
+
+            # 1. Static blocklist match (exact, prefix, or suffix)
+            if any(
+                text_lower == blocked
+                or text_lower.startswith(blocked)
+                # spaCy may tag the suffix of a compound name (e.g. "Visakhapatnam"
+                # from "INS Visakhapatnam") — catch it via the blocked entry's suffix
+                or (len(text_lower) > 4 and blocked.endswith(text_lower))
+                for blocked in NEVER_PERSON
+            ):
+                continue  # Drop this entity
+
+            # 2. Context-based check: look at the two tokens before the entity.
+            # If any preceding token is a vessel prefix, this is a ship name.
+            context_start = max(0, ent.start - 2)
+            preceding = [t.text.lower() for t in doc[context_start:ent.start]]
+            if any(tok in VESSEL_PREFIXES for tok in preceding):
+                continue  # Drop — it's a vessel name following a ship prefix
+
+        new_ents.append(ent)
+
+    doc.ents = new_ents
+    return doc
+
 def get_phi_model() -> Language:
     """
     Returns the singleton spaCy pipeline.
@@ -32,8 +98,9 @@ def get_phi_model() -> Language:
 
     nlp = spacy.load("en_core_web_sm")
 
-    # Add DOB context detector AFTER NER
-    nlp.add_pipe("dob_context_detector", after="ner")
+    # Add post-NER filters: blocklist first, then DOB upgrader
+    nlp.add_pipe("military_blocklist", after="ner")
+    nlp.add_pipe("dob_context_detector", after="military_blocklist")
 
     _nlp = nlp
     logger.info("PHI model loaded ✓")

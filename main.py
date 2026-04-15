@@ -62,13 +62,18 @@ async def lifespan(app: FastAPI):
             command=["python", "app/mcp/servers/echo_server.py"],
         ))
 
-        if settings.environment != "test":
+        registry.register(MCPServerConfig(
+            server_id="maritime",
+            name="Maritime Security Server",
+            transport=TransportType.STDIO,
+            command=["python", "app/mcp/servers/maritime_server.py"],
+        ))
 
-            registry.register(MCPServerConfig(
-                server_id="maritime",
-                name="Maritime Security Server",
+        registry.register(MCPServerConfig(
+                server_id="intel",
+                name="Naval Intelligence Server",
                 transport=TransportType.STDIO,
-                command=["python", "app/mcp/servers/maritime_server.py"],
+                command=["python", "app/mcp/servers/intel_server.py"],
             ))
 
         # ── Connect each server individually ──────────────────────────────────
