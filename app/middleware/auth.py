@@ -60,6 +60,11 @@ _API_KEY_STORE: dict[str, dict] = {
         "tenant_id": "icg-watchkeeper",
         "scopes":    ["gateway:invoke"],
     },
+    "mcpilot-bfsi-001": {
+        "client_id": "bfsi-analyst-client",
+        "tenant_id": "bfsi-analyst",
+        "scopes":    ["gateway:invoke"],
+    },
 }
 
 

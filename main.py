@@ -75,6 +75,13 @@ async def lifespan(app: FastAPI):
                 transport=TransportType.STDIO,
                 command=["python", "app/mcp/servers/intel_server.py"],
             ))
+        
+        registry.register(MCPServerConfig(
+                server_id="bfsi",
+                name="BFSI Intelligence Server",
+                transport=TransportType.STDIO,
+                command=["python", "app/mcp/servers/bfsi_server.py"],
+            ))
 
         # ── Connect each server individually ──────────────────────────────────
         logger.info("Connecting to MCP servers...")

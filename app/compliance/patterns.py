@@ -131,11 +131,10 @@ RANK_NAME_REGEX = re.compile(
 
 # ── Military Time (24hr format) ───────────────────────────────────────────────
 MILITARY_TIME_REGEX = re.compile(
-    r'(?<![-\w])(?:[01]\d|2[0-3])[0-5]\d\s*(?:hours?|hrs?|zulu|local)\b'
-    r'|(?<![-\w])(?:[01]\d|2[0-3])[0-5]\d\b(?!\s*[-:T\w])',
+    r'\b(?:[01]\d|2[0-3])[0-5]\d\s*(?:hours?|hrs?|zulu|local)\b'
+    r'|(?<!\d)(?!(?:19|20)\d{2}\b)(?:[01]\d|2[0-3])[0-5]\d\b(?!\s*[-:T\w\d])',
     re.IGNORECASE
 )
-
 # ── Proword regex (for reference only — not used for redaction) ───────────────
 PROWORD_REGEX = re.compile(
     r'\b(?:tiger|over|out|roger|wilco|say again|wait-out|figures|h-hour|d-day)\b',

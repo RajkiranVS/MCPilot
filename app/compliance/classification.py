@@ -338,6 +338,27 @@ class ClearanceRegistry:
             description="Army field commander — CONFIDENTIAL",
         ))
 
+        self.register_server(ServerProfile(
+            server_id="bfsi",
+            name="BFSI Intelligence Server",
+            default_classification=ClassificationLevel.CONFIDENTIAL,
+            description="Financial documents, KYC, credit risk — CONFIDENTIAL",
+        ))
+        self.register_tenant(TenantProfile(
+            tenant_id="bfsi-analyst",
+            name="BFSI Analyst",
+            clearance=ClearanceLevel.CONFIDENTIAL,
+            unit="Banking & Financial Services",
+            description="BFSI analyst — CONFIDENTIAL clearance",
+        ))
+        self.register_tenant(TenantProfile(
+            tenant_id="bfsi-compliance",
+            name="BFSI Compliance Officer",
+            clearance=ClearanceLevel.SECRET,
+            unit="Compliance & Risk",
+            description="Compliance officer — SECRET clearance",
+        ))
+
     # ── Registration ──────────────────────────────────────────────────────────
 
     def register_server(self, profile: ServerProfile) -> None:
