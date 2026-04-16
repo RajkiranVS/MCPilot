@@ -38,6 +38,7 @@ from app.rag import tool_indexer
 from app.db.base import init_db
 from app.routers import health, gateway, auth, compliance, metrics, admin
 from app.routers.classification import router as classification_router
+from app.routers.upload import router as upload_router
 from app.core.metrics import metrics_store
 
 settings = get_settings()
@@ -177,6 +178,7 @@ app.include_router(compliance.router)
 app.include_router(metrics.router)
 app.include_router(admin.router)
 app.include_router(classification_router)
+app.include_router(upload_router)
 
 # ── Serve frontend static files ───────────────────────────────────────────────
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")

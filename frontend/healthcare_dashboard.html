@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCPilot — Healthcare Intelligence Platform</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;600;700;900&display=swap');
+  :root {
+    --bg:#030F0A;--bg2:#050F0C;--bg3:#071510;--panel:#091A12;
+    --border:#102A18;--border2:#081A10;
+    --teal:#00E5B0;--teal2:#00B888;--teal3:#004A38;
+    --green:#00FF88;--red:#FF3344;--amber:#F5A623;--blue:#00AAFF;
+    --white:#E8FFF5;--muted:#2A5A40;--muted2:#12301E;
+    --font-mono:'DM Mono',monospace;--font-body:'Outfit',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--white);font-family:var(--font-body);min-height:100vh;}
+  body::before{content:'';position:fixed;inset:0;
+    background-image:linear-gradient(rgba(0,229,176,0.015) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,229,176,0.015) 1px,transparent 1px);
+    background-size:40px 40px;pointer-events:none;z-index:0;}
+
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse-teal{0%,100%{box-shadow:0 0 0 0 rgba(0,229,176,0.3)}50%{box-shadow:0 0 0 6px rgba(0,229,176,0)}}
+
+  .topbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
+    padding:0 32px;height:58px;background:rgba(3,15,10,0.95);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);}
+  .logo{display:flex;align-items:center;gap:14px;}
+  .logo-ring{width:34px;height:34px;border:1.5px solid var(--teal);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;}
+  .logo-dot{width:6px;height:6px;background:var(--teal);border-radius:50%;}
+  .logo-text{font-size:17px;font-weight:700;letter-spacing:1px;}
+  .logo-text span{color:var(--teal);}
+  .logo-sub{font-family:var(--font-mono);font-size:8px;color:var(--muted);letter-spacing:3px;margin-top:1px;}
+  .topbar-badge{font-family:var(--font-mono);font-size:9px;color:var(--teal);
+    letter-spacing:3px;padding:4px 12px;border:1px solid rgba(0,229,176,0.2);
+    background:rgba(0,229,176,0.04);}
+  .topbar-right{display:flex;align-items:center;gap:20px;}
+  .spill{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--muted);}
+  .sdot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 2s infinite;}
+  .clock{font-family:var(--font-mono);font-size:13px;color:var(--teal);}
+
+  .main{position:relative;z-index:1;display:grid;grid-template-columns:340px 1fr;
+    gap:1px;height:calc(100vh - 58px);background:var(--border2);}
+
+  .left{background:var(--panel);display:flex;flex-direction:column;overflow:hidden;}
+  .panel-hdr{padding:14px 18px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;}
+  .panel-title{font-family:var(--font-mono);font-size:9px;letter-spacing:3px;color:var(--teal);}
+  .panel-sub{font-family:var(--font-mono);font-size:9px;color:var(--muted);}
+
+  .upload-zone{margin:16px;border:2px dashed var(--border);padding:28px 20px;
+    text-align:center;cursor:pointer;transition:all 0.2s;position:relative;}
+  .upload-zone:hover,.upload-zone.drag{border-color:var(--teal);background:rgba(0,229,176,0.04);}
+  .upload-zone.drag{animation:pulse-teal 1s infinite;}
+  .upload-icon{font-size:32px;margin-bottom:10px;display:block;}
+  .upload-title{font-family:var(--font-mono);font-size:11px;color:var(--teal);
+    letter-spacing:2px;margin-bottom:6px;}
+  .upload-sub{font-size:11px;color:var(--muted);line-height:1.5;}
+  .upload-types{font-family:var(--font-mono);font-size:9px;color:var(--muted2);
+    margin-top:8px;letter-spacing:1px;}
+  #file-input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+
+  .file-info{margin:0 16px 12px;padding:10px 14px;background:var(--bg3);
+    border:1px solid var(--border);display:none;animation:fadeUp 0.2s ease;}
+  .file-name{font-family:var(--font-mono);font-size:11px;color:var(--teal);
+    margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .file-meta{font-family:var(--font-mono);font-size:9px;color:var(--muted);}
+
+  .tool-section{padding:0 16px 16px;flex:1;overflow-y:auto;}
+  .tool-label{font-family:var(--font-mono);font-size:9px;color:var(--muted);
+    letter-spacing:2px;margin-bottom:10px;}
+  .tool-btn{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;
+    margin-bottom:6px;background:var(--bg3);border:1px solid var(--border2);
+    color:var(--white);cursor:pointer;transition:all 0.15s;text-align:left;}
+  .tool-btn:hover{border-color:var(--border);background:var(--bg2);}
+  .tool-btn.active{border-color:var(--teal);background:rgba(0,229,176,0.05);}
+  .tool-icon{width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--border);font-size:14px;flex-shrink:0;}
+  .tool-btn.active .tool-icon{border-color:var(--teal);}
+  .tool-name{font-family:var(--font-mono);font-size:10px;color:var(--teal);letter-spacing:1px;}
+  .tool-desc{font-size:11px;color:var(--muted);margin-top:2px;}
+  .tool-badge{font-family:var(--font-mono);font-size:8px;padding:1px 5px;
+    border:1px solid;margin-top:3px;display:inline-block;}
+  .badge-abdm{color:var(--teal);border-color:var(--teal3);background:rgba(0,229,176,0.05);}
+  .badge-dpdp{color:var(--green);border-color:rgba(0,255,136,0.3);background:rgba(0,255,136,0.05);}
+  .badge-irdai{color:var(--blue);border-color:rgba(0,170,255,0.3);background:rgba(0,170,255,0.05);}
+
+  /* age input */
+  .age-row{display:flex;align-items:center;gap:8px;margin:8px 0;}
+  .age-label{font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;}
+  .age-input{background:var(--bg3);border:1px solid var(--border);color:var(--white);
+    font-family:var(--font-mono);font-size:12px;padding:5px 8px;width:70px;outline:none;}
+  .age-input:focus{border-color:var(--teal);}
+
+  .btn-analyse{width:100%;padding:12px;background:var(--teal);border:none;
+    color:var(--bg);font-family:var(--font-mono);font-size:12px;font-weight:500;
+    cursor:pointer;letter-spacing:2px;transition:all 0.15s;text-transform:uppercase;margin-top:8px;}
+  .btn-analyse:hover{background:var(--teal2);}
+  .btn-analyse:disabled{background:var(--muted2);color:var(--muted);cursor:not-allowed;}
+
+  .right{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;}
+  .right-hdr{padding:14px 20px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;}
+  .result-area{flex:1;overflow-y:auto;padding:20px;}
+
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    height:100%;gap:14px;opacity:0.25;}
+  .empty-icon{font-size:48px;}
+  .empty-text{font-family:var(--font-mono);font-size:11px;letter-spacing:2px;
+    color:var(--muted);text-align:center;line-height:1.8;}
+
+  .result-card{background:var(--panel);border:1px solid var(--border);
+    margin-bottom:16px;animation:fadeUp 0.3s ease;}
+  .result-card.risk-high{border-color:rgba(255,51,68,0.4);}
+  .result-card.risk-medium{border-color:rgba(245,166,35,0.3);}
+  .result-card.risk-low{border-color:rgba(0,229,176,0.2);}
+  .card-hdr{padding:12px 16px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;}
+  .card-title{font-family:var(--font-mono);font-size:10px;letter-spacing:2px;color:var(--teal);}
+  .card-body{padding:14px 16px;}
+
+  .risk-badge{font-family:var(--font-mono);font-size:9px;letter-spacing:2px;
+    padding:3px 10px;font-weight:500;}
+  .rb-high{background:rgba(255,51,68,0.15);color:#FF3344;border:1px solid rgba(255,51,68,0.3);}
+  .rb-medium{background:rgba(245,166,35,0.15);color:var(--amber);border:1px solid rgba(245,166,35,0.3);}
+  .rb-low{background:rgba(0,229,176,0.1);color:var(--teal);border:1px solid var(--teal3);}
+
+  .data-row{display:flex;justify-content:space-between;align-items:baseline;
+    padding:5px 0;border-bottom:1px solid var(--border2);font-size:12px;}
+  .data-row:last-child{border-bottom:none;}
+  .dk{color:var(--muted);font-family:var(--font-mono);font-size:10px;}
+  .dv{color:var(--white);font-family:var(--font-mono);font-size:11px;font-weight:500;text-align:right;}
+  .dv.teal{color:var(--teal);}
+  .dv.green{color:var(--green);}
+  .dv.red{color:#FF3344;}
+  .dv.amber{color:var(--amber);}
+
+  .vital-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0;}
+  .vital-cell{padding:10px;background:var(--bg3);border:1px solid var(--border);text-align:center;}
+  .vital-label{font-family:var(--font-mono);font-size:8px;color:var(--muted);
+    letter-spacing:1px;margin-bottom:4px;}
+  .vital-value{font-family:var(--font-mono);font-size:13px;font-weight:500;}
+  .vital-status{font-family:var(--font-mono);font-size:8px;margin-top:2px;letter-spacing:1px;}
+
+  .alert-item{padding:8px 12px;margin-bottom:6px;border-left:3px solid #FF3344;
+    background:rgba(255,51,68,0.05);}
+  .alert-vital{font-family:var(--font-mono);font-size:10px;color:#FF3344;letter-spacing:1px;}
+  .alert-action{font-size:11px;color:var(--muted);margin-top:3px;}
+
+  .drug-item{padding:8px 12px;margin-bottom:6px;border-left:3px solid var(--amber);}
+  .drug-item.high{border-color:#FF3344;background:rgba(255,51,68,0.05);}
+  .drug-item.medium{border-color:var(--amber);background:rgba(245,166,35,0.05);}
+  .drug-pair{font-family:var(--font-mono);font-size:10px;margin-bottom:3px;}
+  .drug-risk{font-size:11px;color:var(--muted);}
+
+  .med-chip{display:inline-block;font-family:var(--font-mono);font-size:9px;
+    letter-spacing:1px;padding:2px 7px;margin:2px;border:1px solid var(--teal3);
+    color:var(--teal);background:rgba(0,229,176,0.05);}
+
+  .action-item{display:flex;align-items:center;gap:8px;padding:5px 0;
+    font-family:var(--font-mono);font-size:11px;border-bottom:1px solid var(--border2);}
+  .action-item:last-child{border-bottom:none;}
+  .action-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+
+  .section-div{font-family:var(--font-mono);font-size:9px;color:var(--muted);
+    letter-spacing:3px;padding:8px 0 4px;border-bottom:1px solid var(--border2);margin-bottom:10px;}
+
+  .pii-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;
+    background:rgba(0,229,176,0.05);border:1px solid rgba(0,229,176,0.15);margin-top:12px;}
+  .pii-chip{display:inline-block;font-family:var(--font-mono);font-size:8px;
+    letter-spacing:1px;padding:2px 6px;margin:2px;border:1px solid rgba(255,51,68,0.3);
+    color:#FF3344;background:rgba(255,51,68,0.06);}
+
+  .abdm-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;
+    background:rgba(0,170,255,0.05);border:1px solid rgba(0,170,255,0.15);margin-top:8px;
+    font-family:var(--font-mono);font-size:9px;color:var(--blue);letter-spacing:1px;}
+
+  ::-webkit-scrollbar{width:3px;}
+  ::-webkit-scrollbar-track{background:var(--bg2);}
+  ::-webkit-scrollbar-thumb{background:var(--muted2);}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-ring"><div class="logo-dot"></div></div>
+    <div><div class="logo-text">MC<span>Pilot</span></div>
+    <div class="logo-sub">SOVEREIGN AI GATEWAY</div></div>
+  </div>
+  <div class="topbar-badge">◈ HEALTHCARE INTELLIGENCE PLATFORM</div>
+  <div class="topbar-right">
+    <div class="spill"><div class="sdot"></div><span id="gw-status">GATEWAY ONLINE</span></div>
+    <div class="spill"><div class="sdot" style="background:var(--teal)"></div><span>DPDP · ABDM COMPLIANT</span></div>
+    <div class="clock" id="clock">--:--:-- UTC</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- LEFT -->
+  <div class="left">
+    <div class="panel-hdr">
+      <div class="panel-title">◈ CLINICAL DOCUMENT UPLOAD</div>
+      <div class="panel-sub">PDF · DOCX · TXT</div>
+    </div>
+
+    <div class="upload-zone" id="upload-zone">
+      <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt">
+      <span class="upload-icon">🏥</span>
+      <div class="upload-title">DROP CLINICAL DOCUMENT</div>
+      <div class="upload-sub">Discharge summaries, lab reports, prescriptions,<br>insurance claims, operative notes, radiology reports</div>
+      <div class="upload-types">PDF · DOCX · TXT · MAX 10MB</div>
+    </div>
+
+    <div class="file-info" id="file-info">
+      <div class="file-name" id="file-name">—</div>
+      <div class="file-meta" id="file-meta">—</div>
+    </div>
+
+    <div class="tool-section">
+      <div class="tool-label">◈ SELECT ANALYSIS TYPE</div>
+
+      <div class="tool-btn active" data-tool="summarise_clinical_document" onclick="selectTool(this)">
+        <div class="tool-icon">📄</div>
+        <div>
+          <div class="tool-name">CLINICAL SUMMARY</div>
+          <div class="tool-desc">Discharge, lab, prescription, radiology</div>
+          <span class="tool-badge badge-abdm">ABDM · FHIR R4</span>
+          <span class="tool-badge badge-dpdp">DPDP</span>
+        </div>
+      </div>
+
+      <div class="tool-btn" data-tool="assess_insurance_claim" onclick="selectTool(this)">
+        <div class="tool-icon">💊</div>
+        <div>
+          <div class="tool-name">INSURANCE CLAIM ASSESSMENT</div>
+          <div class="tool-desc">Pre-auth, cashless, TPA recommendation</div>
+          <span class="tool-badge badge-irdai">IRDAI 2016</span>
+        </div>
+      </div>
+
+      <div class="tool-btn" data-tool="extract_patient_vitals" onclick="selectTool(this)">
+        <div class="tool-icon">❤️</div>
+        <div>
+          <div class="tool-name">VITALS EXTRACTION</div>
+          <div class="tool-desc">BP, pulse, SpO2, temperature, RR</div>
+          <span class="tool-badge badge-abdm">NMC Guidelines</span>
+        </div>
+      </div>
+
+      <div class="tool-btn" data-tool="flag_clinical_risk" onclick="selectTool(this)">
+        <div class="tool-icon">⚠️</div>
+        <div>
+          <div class="tool-name">CLINICAL RISK FLAGS</div>
+          <div class="tool-desc">Drug interactions, contraindications, alerts</div>
+          <span class="tool-badge badge-abdm">BEERS · WHO</span>
+        </div>
+      </div>
+
+      <div class="tool-btn" data-tool="generate_discharge_summary" onclick="selectTool(this)">
+        <div class="tool-icon">📋</div>
+        <div>
+          <div class="tool-name">DISCHARGE SUMMARY</div>
+          <div class="tool-desc">ABDM-compliant structured discharge note</div>
+          <span class="tool-badge badge-abdm">NABH · NMC</span>
+        </div>
+      </div>
+
+      <div class="age-row">
+        <span class="age-label">PATIENT AGE (optional):</span>
+        <input type="number" class="age-input" id="patient-age" placeholder="0" min="0" max="120">
+        <span class="age-label">years</span>
+      </div>
+
+      <button class="btn-analyse" id="btn-analyse" onclick="runAnalysis()" disabled>
+        ▶ ANALYSE DOCUMENT
+      </button>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right">
+    <div class="right-hdr">
+      <div class="panel-title">◈ CLINICAL ANALYSIS RESULTS</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="pii-notice" style="display:none;font-family:var(--font-mono);font-size:9px;
+          color:var(--teal);letter-spacing:1px;padding:3px 8px;border:1px solid rgba(0,229,176,0.2);
+          background:rgba(0,229,176,0.05);">✓ PII REDACTED · DPDP, 2023</div>
+        <div id="doc-type-display" style="display:none;font-family:var(--font-mono);font-size:9px;
+          letter-spacing:2px;padding:2px 8px;border:1px solid var(--teal3);color:var(--teal);">—</div>
+      </div>
+    </div>
+
+    <div class="result-area" id="result-area">
+      <div class="empty" id="empty-state">
+        <div class="empty-icon">🏥</div>
+        <div class="empty-text">UPLOAD A CLINICAL DOCUMENT<br>AND SELECT AN ANALYSIS TYPE<br>TO BEGIN</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_KEY = 'mcpilot-hospital-001';
+const BASE    = 'http://localhost:8000';
+let selectedFile = null;
+let selectedTool = 'summarise_clinical_document';
+
+function tick() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    `${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;
+}
+setInterval(tick,1000); tick();
+
+const zone = document.getElementById('upload-zone');
+const input = document.getElementById('file-input');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+input.addEventListener('change', () => { if (input.files[0]) setFile(input.files[0]); });
+
+function setFile(f) {
+  selectedFile = f;
+  document.getElementById('file-name').textContent = f.name;
+  document.getElementById('file-meta').textContent = `${(f.size/1024).toFixed(1)} KB · ${f.type || 'document'}`;
+  document.getElementById('file-info').style.display = 'block';
+  document.getElementById('btn-analyse').disabled = false;
+  zone.querySelector('.upload-icon').textContent = '✅';
+  zone.querySelector('.upload-title').textContent = 'FILE READY';
+}
+
+function selectTool(btn) {
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedTool = btn.dataset.tool;
+}
+
+async function runAnalysis() {
+  if (!selectedFile) return;
+  const btn = document.getElementById('btn-analyse');
+  btn.disabled = true;
+  const age = parseInt(document.getElementById('patient-age').value) || 0;
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('result-area').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;">
+      <div style="width:40px;height:40px;border:2px solid var(--border);border-top-color:var(--teal);
+        border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--teal);letter-spacing:2px;">
+        PROCESSING CLINICAL DOCUMENT...</div>
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;">
+        PII REDACTION → ${selectedTool.toUpperCase().replace(/_/g,' ')}</div>
+    </div>`;
+
+  try {
+    const extraParams = age > 0 ? JSON.stringify({patient_age: age}) : '{}';
+    const form = new FormData();
+    form.append('file', selectedFile);
+    form.append('server_id', 'healthcare');
+    form.append('tool_name', selectedTool);
+    form.append('extra_params', extraParams);
+
+    const r = await fetch(`${BASE}/gateway/upload/analyse`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY },
+      body: form,
+    });
+    const resp = await r.json();
+    if (!r.ok) { showError(resp.detail?.reason || resp.detail || 'Analysis failed'); return; }
+    renderResult(resp);
+  } catch(e) {
+    showError(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showError(msg) {
+  document.getElementById('result-area').innerHTML = `
+    <div style="padding:24px;border:1px solid rgba(255,51,68,0.3);background:rgba(255,51,68,0.05);
+      font-family:var(--font-mono);font-size:11px;color:#FF3344;line-height:1.6;">
+      ✗ ERROR: ${msg}
+    </div>`;
+}
+
+function renderResult(resp) {
+  const area = document.getElementById('result-area');
+  area.innerHTML = '';
+
+  let data;
+  try {
+    const content = resp.result?.content?.[0]?.text || resp.result?.text;
+    data = content ? JSON.parse(content) : resp.result;
+  } catch { data = resp.result; }
+  if (!data) { showError('Failed to parse result'); return; }
+
+  if (resp.pii_detected) document.getElementById('pii-notice').style.display = 'flex';
+  if (data.document_type) {
+    const dtd = document.getElementById('doc-type-display');
+    dtd.textContent = data.document_type.replace(/_/g,' ');
+    dtd.style.display = 'inline-block';
+  }
+
+  const risk = data.risk_assessment || {};
+  const riskLevel = (risk.risk_level || data.overall_risk || 'LOW').toUpperCase();
+  const riskClass = riskLevel === 'HIGH' || riskLevel === 'CRITICAL' ? 'risk-high'
+    : riskLevel === 'MEDIUM' ? 'risk-medium' : 'risk-low';
+  const rbClass = riskLevel === 'HIGH' || riskLevel === 'CRITICAL' ? 'rb-high'
+    : riskLevel === 'MEDIUM' ? 'rb-medium' : 'rb-low';
+
+  let html = `<div class="result-card ${riskClass}">
+    <div class="card-hdr">
+      <div class="card-title">◈ ${selectedTool.toUpperCase().replace(/_/g,' ')}</div>
+      <span class="risk-badge ${rbClass}">${riskLevel}</span>
+    </div>
+    <div class="card-body">`;
+
+  // File info
+  html += dr('FILE', resp.filename, 'teal');
+  html += dr('WORDS PROCESSED', resp.word_count || data.document_stats?.word_count || '—');
+  if (data.document_type) html += dr('DOCUMENT TYPE', data.document_type.replace(/_/g,' '), 'teal');
+
+  // Vitals grid
+  const vitals = data.vitals || {};
+  if (Object.keys(vitals).length > 0) {
+    html += `<div class="section-div">VITAL SIGNS</div><div class="vital-grid">`;
+    const vitalMap = {
+      blood_pressure: {icon:'🫀', label:'BLOOD PRESSURE', status:'bp_status'},
+      pulse:          {icon:'💓', label:'PULSE RATE',     status:'pulse_status'},
+      spo2:           {icon:'🫁', label:'SpO2',           status:'spo2_status'},
+      temperature:    {icon:'🌡️', label:'TEMPERATURE',    status:null},
+      respiratory_rate:{icon:'💨',label:'RESP RATE',      status:null},
+    };
+    Object.entries(vitalMap).forEach(([key, info]) => {
+      if (!vitals[key]) return;
+      const status = info.status ? vitals[info.status] : '';
+      const col = status === 'NORMAL' ? 'var(--green)'
+        : (status && status !== 'NORMAL') ? '#FF3344' : 'var(--teal)';
+      html += `<div class="vital-cell">
+        <div class="vital-label">${info.icon} ${info.label}</div>
+        <div class="vital-value" style="color:${col}">${vitals[key]}</div>
+        ${status ? `<div class="vital-status" style="color:${col}">${status}</div>` : ''}
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Alerts
+  const alerts = data.alerts || [];
+  if (alerts.length > 0) {
+    html += `<div class="section-div">CLINICAL ALERTS (${alerts.length})</div>`;
+    alerts.forEach(a => {
+      html += `<div class="alert-item">
+        <div class="alert-vital">◉ ${a.vital || a.alert}</div>
+        <div class="alert-action">${a.action}</div>
+      </div>`;
+    });
+  }
+
+  // Diagnoses
+  const diagnoses = data.diagnoses || data.clinical_summary?.medications_prescribed || [];
+  if (data.diagnoses?.length > 0) {
+    html += `<div class="section-div">DIAGNOSES</div>`;
+    data.diagnoses.forEach(d => {
+      html += `<div style="padding:4px 0;font-size:12px;border-bottom:1px solid var(--border2);
+        color:var(--white)">${d}</div>`;
+    });
+  }
+
+  // Medications
+  const meds = data.medications || data.clinical_summary?.medications_prescribed || [];
+  if (meds.length > 0) {
+    html += `<div class="section-div">MEDICATIONS (${meds.length})</div>`;
+    html += `<div style="padding:4px 0">`;
+    meds.forEach(m => { html += `<span class="med-chip">${m}</span>`; });
+    html += `</div>`;
+  }
+
+  // Drug interactions
+  const interactions = data.drug_interactions || data.risks?.filter(r => r.risk_type === 'DRUG_INTERACTION') || [];
+  if (interactions.length > 0) {
+    html += `<div class="section-div">DRUG INTERACTIONS (${interactions.length})</div>`;
+    interactions.forEach(i => {
+      const isHigh = i.severity === 'HIGH';
+      html += `<div class="drug-item ${isHigh ? 'high' : 'medium'}">
+        <div class="drug-pair" style="color:${isHigh ? '#FF3344' : 'var(--amber)'}">
+          ${i.drug_1 || i.drugs?.[0]} ↔ ${i.drug_2 || i.drugs?.[1]}
+        </div>
+        <div class="drug-risk">${i.risk} · ${i.action}</div>
+      </div>`;
+    });
+  }
+
+  // Claim assessment
+  if (data.claim_details) {
+    const c = data.claim_details;
+    html += `<div class="section-div">CLAIM DETAILS</div>`;
+    html += dr('CLAIMED AMOUNT', `₹ ${c.claimed_amount?.toLocaleString()}`, 'teal');
+    html += dr('PAYABLE AMOUNT', `₹ ${c.payable_amount?.toLocaleString()}`, c.payable_percent === 100 ? 'green' : 'amber');
+    html += dr('PAYABLE %', `${c.payable_percent}%`, c.payable_percent === 100 ? 'green' : 'amber');
+    html += dr('RECOMMENDATION', data.recommendation?.replace(/_/g,' '), 'teal');
+  }
+
+  // Overall status
+  if (data.overall_status) {
+    html += dr('OVERALL STATUS', data.overall_status,
+      data.overall_status === 'WITHIN_NORMAL_LIMITS' ? 'green' :
+      data.overall_status === 'CRITICAL' ? 'red' : 'amber');
+  }
+
+  // Recommended actions
+  const actions = data.recommended_actions || data.tpa_action_points || data.immediate_actions || [];
+  if (actions.length > 0) {
+    html += `<div class="section-div">RECOMMENDED ACTIONS</div>`;
+    actions.forEach((a, i) => {
+      const col = i === 0 && (riskLevel === 'HIGH' || riskLevel === 'CRITICAL') ? '#FF3344'
+        : i === 0 ? 'var(--teal)' : 'var(--green)';
+      html += `<div class="action-item">
+        <div class="action-dot" style="background:${col}"></div>
+        <span style="font-size:11px">${a}</span>
+      </div>`;
+    });
+  }
+
+  // ABDM compliance
+  const abdm = data.abdm_compliance || data.abdm_metadata;
+  if (abdm) {
+    html += `<div class="abdm-bar">◈ ABDM COMPLIANT · FHIR R4 · Consent Required · On-Premise Processing</div>`;
+  }
+
+  // PII protection
+  if (data.pii_protection) {
+    const p = data.pii_protection;
+    html += `<div class="pii-bar">
+      <span style="font-size:16px">🔒</span>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--teal);letter-spacing:1px;">
+          PII PROTECTED — ${p.framework}</div>
+        <div style="margin-top:4px">
+          ${(p.redacted_types||[]).map(t => `<span class="pii-chip">${t}</span>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  html += `</div></div>`;
+  area.innerHTML = html;
+}
+
+function dr(key, val, cls='') {
+  return `<div class="data-row">
+    <span class="dk">${key}</span>
+    <span class="dv ${cls}">${val ?? '—'}</span>
+  </div>`;
+}
+</script>
+</body>
+</html>
