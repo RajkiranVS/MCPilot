@@ -44,6 +44,10 @@ def military_blocklist(doc):
         "satint", "imint", "masint", "osint",
         # Common false positives
         "control", "sierra", "oscar", "romeo", "victor",
+        # Clinical/medical terms
+        "spo2", "hba1c", "ecg", "eeg", "mri", "ct", "bp", "hr", "rr",
+        "nstemi", "stemi", "acs", "copd", "htn", "dm", "cad",
+        "abdm", "nabh", "nmc", "irdai", "pmjay",
     }
 
     # Token prefixes that always indicate a vessel name, not a person name.

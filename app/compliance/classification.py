@@ -359,6 +359,27 @@ class ClearanceRegistry:
             description="Compliance officer — SECRET clearance",
         ))
 
+        self.register_server(ServerProfile(
+            server_id="healthcare",
+            name="Healthcare Intelligence Server",
+            default_classification=ClassificationLevel.CONFIDENTIAL,
+            description="Patient records, clinical documents — CONFIDENTIAL",
+        ))
+        self.register_tenant(TenantProfile(
+            tenant_id="hospital-admin",
+            name="Hospital Administrator",
+            clearance=ClearanceLevel.CONFIDENTIAL,
+            unit="Healthcare",
+            description="Hospital admin — CONFIDENTIAL clearance",
+        ))
+        self.register_tenant(TenantProfile(
+            tenant_id="tpa-analyst",
+            name="TPA Claims Analyst",
+            clearance=ClearanceLevel.RESTRICTED,
+            unit="Insurance TPA",
+            description="TPA claims analyst — RESTRICTED clearance",
+        ))
+
     # ── Registration ──────────────────────────────────────────────────────────
 
     def register_server(self, profile: ServerProfile) -> None:

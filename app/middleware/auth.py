@@ -65,6 +65,17 @@ _API_KEY_STORE: dict[str, dict] = {
         "tenant_id": "bfsi-analyst",
         "scopes":    ["gateway:invoke"],
     },
+
+    "mcpilot-hospital-001": {
+        "client_id": "hospital-admin-client",
+        "tenant_id": "hospital-admin",
+        "scopes":    ["gateway:invoke"],
+    },
+    "mcpilot-tpa-001": {
+        "client_id": "tpa-analyst-client",
+        "tenant_id": "tpa-analyst",
+        "scopes":    ["gateway:invoke"],
+    },
 }
 
 
