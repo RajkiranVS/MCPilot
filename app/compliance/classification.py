@@ -126,6 +126,21 @@ class GatingAction(str):
     DENY    = "DENY"     # clearance is two+ levels below → full denial
 
 
+SERVER_ACCESS_WHITELIST = {
+    "maritime":   ["icg-watchkeeper", "icg-ops", "navy-ops", "navy-intel", "iaf-ops", "army-field", "dev-tenant"],
+    "intel":      ["navy-ops", "navy-intel", "iaf-ops", "dev-tenant"],
+    "sigint":     ["navy-intel"],
+    "logistics":  ["navy-ops", "navy-intel", "iaf-ops", "army-field", "dev-tenant"],
+    "siepmu":     ["navy-ops", "navy-intel", "iaf-ops", "dev-tenant"],
+    "wargame":    ["navy-ops", "navy-intel", "iaf-ops", "dev-tenant"],
+    "bfsi":       ["bfsi-analyst", "bfsi-compliance", "dev-tenant"],
+    "healthcare": ["hospital-admin", "tpa-analyst", "dev-tenant"],
+    "echo":       ["dev-tenant", "icg-watchkeeper", "icg-ops", "navy-ops",
+                   "navy-intel", "iaf-ops", "army-field", "bfsi-analyst",
+                   "bfsi-compliance", "hospital-admin", "tpa-analyst"],
+}
+
+
 @dataclass
 class GatingDecision:
     """
@@ -441,6 +456,24 @@ class ClearanceRegistry:
         """
         clearance       = self.get_tenant_clearance(requestor_tenant)
         classification  = data_classification or self.get_server_classification(target_server)
+        # ── Server access whitelist ───────────────────────────────────────────
+        whitelist = SERVER_ACCESS_WHITELIST.get(target_server)
+        if whitelist and requestor_tenant not in whitelist:
+            decision = GatingDecision(
+                action=GatingAction.DENY,
+                requestor_tenant=requestor_tenant,
+                target_server=target_server,
+                requestor_clearance=clearance,
+                data_classification=classification,
+                reason=f"Access denied — {requestor_tenant} is not authorised "
+                       f"to access the {target_server} server",
+            )
+            logger.warning(
+                f"GATING DENIED (whitelist) | tenant={requestor_tenant} "
+                f"server={target_server} hash={decision.audit_hash}"
+            )
+            return decision
+        
         level_gap       = classification.value - clearance.value
 
         if level_gap <= 0:
