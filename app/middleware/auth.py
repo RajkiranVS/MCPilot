@@ -97,7 +97,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # ── Public paths — pass through immediately ───────────────────────────
-        if path in PUBLIC_PATHS or path.startswith("/frontend/"):
+        if path in PUBLIC_PATHS or path.startswith("/frontend/") or path == "/contact/submit":
             return await call_next(request)
 
         # ── Protected paths — require auth ────────────────────────────────────
