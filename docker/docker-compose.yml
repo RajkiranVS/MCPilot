@@ -8,7 +8,7 @@ services:
   # ── MCPilot API ─────────────────────────────────────────────────────────────
   mcpilot:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     container_name: mcpilot-api
     restart: unless-stopped
@@ -21,7 +21,7 @@ services:
       - AISSTREAM_API_KEY=${AISSTREAM_API_KEY}
       - LLM_PROVIDER=mock
     env_file:
-      - .env.production
+      - /home/ubuntu/mcpilot/docker/.env.production
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,7 +64,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
       - certbot_www:/var/www/certbot:ro
       - certbot_conf:/etc/letsencrypt:ro
