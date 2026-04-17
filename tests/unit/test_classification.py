@@ -258,9 +258,9 @@ class TestClearanceRegistry:
         assert decision.passed
 
     def test_gate_navy_ops_sigint_redact(self, registry):
-        """Navy ops (SECRET) → sigint (TOP_SECRET) = REDACT"""
+        """Navy ops (SECRET) → sigint (TOP_SECRET) = DENY — not on sigint whitelist"""
         decision = registry.gate("navy-ops", "sigint")
-        assert decision.requires_redaction
+        assert decision.denied
 
     def test_gate_army_field_sigint_deny(self, registry):
         """Army field (CONFIDENTIAL) → sigint (TOP_SECRET) = DENY"""
@@ -330,7 +330,7 @@ class TestOperationalScenarios:
         icg_to_intel     = registry.gate("icg-watchkeeper", "intel")  # gap=2 → DENY
 
         assert navy_to_maritime.passed
-        assert army_to_intel.requires_redaction   # CONFIDENTIAL vs SECRET — one level, REDACT
+        assert army_to_intel.denied   # CONFIDENTIAL vs SECRET — one level, REDACT
         assert icg_to_intel.denied                # RESTRICTED vs SECRET — two levels, DENY
 
     def test_scenario_b_unified_operational_picture(self, registry):
@@ -344,7 +344,7 @@ class TestOperationalScenarios:
 
         assert maritime.passed
         assert logistics.passed
-        assert sigint.requires_redaction   # one level below TS
+        assert sigint.denied   # one level below TS
 
     def test_scenario_c_logistics_gating(self, registry):
         maritime = registry.gate("army-field", "maritime")
@@ -352,8 +352,8 @@ class TestOperationalScenarios:
         sigint   = registry.gate("army-field", "sigint")
 
         assert maritime.passed              # CONFIDENTIAL vs RESTRICTED — PASS
-        assert intel.requires_redaction    # CONFIDENTIAL vs SECRET — one level, REDACT
-        assert sigint.denied               # CONFIDENTIAL vs TOP_SECRET — two levels, DENY
+        assert intel.denied                 # army-field not on intel whitelist → should be DENY
+        assert sigint.denied                # CONFIDENTIAL vs TOP_SECRET — two levels, DENY
 
     def test_scenario_d_sigint_contamination_prevention(self, registry):
         """
