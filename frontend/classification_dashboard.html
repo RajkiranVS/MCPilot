@@ -453,6 +453,7 @@ const LEVEL_COLOURS = {
 function updateClock() {
   const n = new Date();
   const ist = new Date(n.getTime() + (5.5 * 60 * 60 * 1000));
+  const ist = new Date(n.getTime() + (5.5 * 60 * 60 * 1000));
   document.getElementById('clock').textContent =
     `${String(ist.getUTCHours()).padStart(2,'0')}:${String(ist.getUTCMinutes()).padStart(2,'0')}:${String(ist.getUTCSeconds()).padStart(2,'0')} IST`;
 }
