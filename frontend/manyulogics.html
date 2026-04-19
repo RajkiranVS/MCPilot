@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manyu Logics — Sovereign AI Infrastructure for Critical India</title>
+<meta name="description" content="Manyu Logics builds sovereign AI infrastructure for India's critical sectors — Defence, BFSI and Healthcare.">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg:      #F5F0E8;
+  --bg2:     #EDE8DC;
+  --panel:   #E8E2D4;
+  --border:  #C8C0AC;
+  --border2: #D8D0BC;
+  --ink:     #1A1408;
+  --ink2:    #3A3020;
+  --muted:   #7A7060;
+  --muted2:  #A09888;
+  --saffron: #E8601C;
+  --saffron2:#C04010;
+  --gold:    #B8860B;
+  --navy:    #0A1428;
+
+  --fd: 'Syne', sans-serif;
+  --fs: 'Cormorant Garamond', serif;
+  --fm: 'DM Mono', monospace;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body {
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--fs);
+  overflow-x:hidden;
+}
+
+/* Paper texture overlay */
+body::before {
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events:none;z-index:0;opacity:0.6;
+}
+
+@keyframes fadeUp   { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn   { from{opacity:0} to{opacity:1} }
+@keyframes drawLine { from{width:0} to{width:100%} }
+
+/* NAV */
+nav {
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 48px;height:64px;
+  background:rgba(245,240,232,0.96);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border2);
+}
+.nav-logo { display:flex;align-items:center;gap:12px;text-decoration:none; }
+.nav-mark {
+  width:32px;height:32px;
+  background:var(--ink);
+  display:flex;align-items:center;justify-content:center;
+}
+.nav-mark span {
+  font-family:var(--fd);font-size:14px;font-weight:800;
+  color:var(--saffron);letter-spacing:-1px;
+}
+.nav-name {
+  font-family:var(--fd);font-size:15px;font-weight:700;
+  letter-spacing:1px;color:var(--ink);
+}
+.nav-tagline {
+  font-family:var(--fm);font-size:8px;color:var(--muted);
+  letter-spacing:2px;margin-top:1px;
+}
+.nav-links { display:flex;align-items:center;gap:32px; }
+.nav-links a {
+  font-family:var(--fm);font-size:10px;letter-spacing:2px;
+  color:var(--muted);text-decoration:none;transition:color 0.2s;
+}
+.nav-links a:hover { color:var(--ink); }
+.nav-cta {
+  font-family:var(--fm);font-size:10px;letter-spacing:2px;
+  padding:8px 20px;background:var(--ink);color:var(--bg);
+  text-decoration:none;transition:all 0.2s;border:none;cursor:pointer;
+}
+.nav-cta:hover { background:var(--saffron); }
+
+/* HERO */
+.hero {
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  position:relative;z-index:1;
+  padding-top:64px;
+}
+.hero-left {
+  padding:80px 48px 80px 64px;
+  display:flex;flex-direction:column;justify-content:center;
+  border-right:1px solid var(--border2);
+}
+.hero-right {
+  padding:80px 64px 80px 48px;
+  display:flex;flex-direction:column;justify-content:center;
+  background:var(--ink);
+  position:relative;overflow:hidden;
+}
+.hero-right::before {
+  content:'';
+  position:absolute;inset:0;
+  background:repeating-linear-gradient(
+    45deg,
+    transparent,transparent 40px,
+    rgba(255,255,255,0.01) 40px,rgba(255,255,255,0.01) 41px
+  );
+}
+
+.eyebrow {
+  font-family:var(--fm);font-size:9px;letter-spacing:4px;
+  color:var(--saffron);margin-bottom:24px;
+  display:flex;align-items:center;gap:12px;
+}
+.eyebrow::before {
+  content:'';width:32px;height:1px;background:var(--saffron);
+}
+
+.hero-h1 {
+  font-family:var(--fd);
+  font-size:clamp(40px,5vw,68px);
+  font-weight:800;line-height:1;
+  letter-spacing:-1px;margin-bottom:24px;
+}
+.hero-h1 em { font-style:normal;color:var(--saffron); }
+
+.hero-body {
+  font-size:18px;font-weight:300;line-height:1.8;
+  color:var(--ink2);margin-bottom:40px;max-width:460px;
+}
+.hero-body em { font-style:italic;color:var(--ink); }
+
+.hero-btns { display:flex;gap:12px;flex-wrap:wrap; }
+.btn-dark {
+  font-family:var(--fm);font-size:10px;letter-spacing:2px;
+  padding:13px 28px;background:var(--ink);color:var(--bg);
+  text-decoration:none;transition:all 0.2s;border:none;cursor:pointer;
+}
+.btn-dark:hover { background:var(--saffron); }
+.btn-outline {
+  font-family:var(--fm);font-size:10px;letter-spacing:2px;
+  padding:13px 28px;border:1px solid var(--border);
+  color:var(--ink);text-decoration:none;
+  background:transparent;cursor:pointer;transition:all 0.2s;
+}
+.btn-outline:hover { border-color:var(--ink); }
+
+/* Right side content */
+.hero-product {
+  position:relative;z-index:1;
+}
+.product-label {
+  font-family:var(--fm);font-size:9px;letter-spacing:3px;
+  color:rgba(245,240,232,0.4);margin-bottom:20px;
+}
+.product-name {
+  font-family:var(--fd);font-size:clamp(36px,4vw,56px);
+  font-weight:800;color:var(--bg);letter-spacing:-1px;
+  line-height:1;margin-bottom:8px;
+}
+.product-name span { color:var(--saffron); }
+.product-tagline {
+  font-family:var(--fs);font-style:italic;font-size:18px;
+  color:rgba(245,240,232,0.5);margin-bottom:32px;
+}
+.product-pills {
+  display:flex;flex-direction:column;gap:10px;margin-bottom:36px;
+}
+.pill {
+  display:flex;align-items:center;gap:12px;
+  padding:12px 16px;
+  border:1px solid rgba(245,240,232,0.1);
+  background:rgba(245,240,232,0.04);
+}
+.pill-icon { font-size:18px; }
+.pill-text {
+  font-family:var(--fm);font-size:10px;letter-spacing:1px;
+  color:rgba(245,240,232,0.7);
+}
+.pill-arrow { margin-left:auto;color:var(--saffron);font-size:12px; }
+.product-link {
+  font-family:var(--fm);font-size:10px;letter-spacing:2px;
+  padding:12px 24px;border:1px solid var(--saffron);
+  color:var(--saffron);text-decoration:none;
+  display:inline-block;transition:all 0.2s;
+}
+.product-link:hover { background:var(--saffron);color:var(--ink); }
+
+/* ABOUT */
+.about {
+  padding:120px 64px;
+  display:grid;grid-template-columns:1fr 2fr;
+  gap:80px;align-items:start;
+  border-top:1px solid var(--border2);
+  position:relative;z-index:1;
+}
+.about-label {
+  font-family:var(--fm);font-size:9px;letter-spacing:4px;
+  color:var(--saffron);margin-bottom:20px;
+}
+.about-h2 {
+  font-family:var(--fd);font-size:clamp(28px,3vw,42px);
+  font-weight:800;line-height:1.1;letter-spacing:-0.5px;
+}
+.about-body {
+  font-size:19px;font-weight:300;line-height:1.9;
+  color:var(--ink2);
+}
+.about-body p { margin-bottom:24px; }
+.about-body p:last-child { margin-bottom:0; }
+.about-body strong { font-weight:600;color:var(--ink); }
+
+/* TEAM */
+.team {
+  background:var(--bg2);
+  border-top:1px solid var(--border2);
+  border-bottom:1px solid var(--border2);
+  padding:100px 64px;
+  position:relative;z-index:1;
+}
+.team-header { margin-bottom:64px; }
+.team-grid { display:grid;grid-template-columns:1fr 1fr;gap:2px; }
+.team-card {
+  background:var(--bg);
+  padding:48px 40px;
+  border:1px solid var(--border2);
+  position:relative;overflow:hidden;
+}
+.team-card::after {
+  content:'';position:absolute;bottom:0;left:0;right:0;height:2px;
+  background:var(--saffron);transform:scaleX(0);transform-origin:left;
+  transition:transform 0.3s ease;
+}
+.team-card:hover::after { transform:scaleX(1); }
+.team-initial {
+  font-family:var(--fd);font-size:72px;font-weight:800;
+  color:var(--panel);line-height:1;margin-bottom:20px;
+  letter-spacing:-4px;
+}
+.team-name {
+  font-family:var(--fd);font-size:22px;font-weight:700;
+  margin-bottom:4px;
+}
+.team-role {
+  font-family:var(--fm);font-size:9px;letter-spacing:3px;
+  color:var(--saffron);margin-bottom:20px;
+}
+.team-bio {
+  font-size:16px;font-weight:300;line-height:1.8;
+  color:var(--ink2);
+}
+
+/* VALUES */
+.values {
+  padding:100px 64px;
+  position:relative;z-index:1;
+}
+.values-grid {
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:2px;margin-top:64px;
+}
+.value-card {
+  padding:40px 32px;
+  border:1px solid var(--border2);
+}
+.value-num {
+  font-family:var(--fd);font-size:48px;font-weight:800;
+  color:var(--panel);line-height:1;margin-bottom:16px;
+}
+.value-title {
+  font-family:var(--fd);font-size:18px;font-weight:700;
+  margin-bottom:12px;letter-spacing:-0.3px;
+}
+.value-desc {
+  font-size:15px;font-weight:300;line-height:1.8;color:var(--ink2);
+}
+
+/* CTA */
+.cta {
+  background:var(--ink);
+  padding:120px 64px;
+  text-align:center;
+  position:relative;z-index:1;overflow:hidden;
+}
+.cta::before {
+  content:'MANYU LOGICS';
+  position:absolute;
+  font-family:var(--fd);font-size:200px;font-weight:800;
+  color:rgba(255,255,255,0.02);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  white-space:nowrap;pointer-events:none;
+  letter-spacing:-8px;
+}
+.cta-eyebrow {
+  font-family:var(--fm);font-size:9px;letter-spacing:4px;
+  color:var(--saffron);margin-bottom:24px;
+}
+.cta-h {
+  font-family:var(--fd);font-size:clamp(36px,5vw,64px);
+  font-weight:800;color:var(--bg);line-height:1.1;
+  letter-spacing:-1px;margin-bottom:20px;
+}
+.cta-sub {
+  font-family:var(--fs);font-style:italic;font-size:20px;
+  color:rgba(245,240,232,0.4);margin-bottom:48px;
+}
+.cta-email {
+  margin-top:28px;font-family:var(--fm);font-size:10px;
+  color:rgba(245,240,232,0.3);letter-spacing:1px;
+}
+.cta-email a { color:rgba(245,240,232,0.6);text-decoration:none; }
+.cta-email a:hover { color:var(--saffron); }
+
+/* FOOTER */
+footer {
+  background:var(--ink);
+  border-top:1px solid rgba(245,240,232,0.08);
+  padding:32px 64px;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:16px;
+  position:relative;z-index:1;
+}
+.ft {
+  font-family:var(--fm);font-size:9px;
+  color:rgba(245,240,232,0.3);letter-spacing:1px;
+}
+.ft a { color:rgba(245,240,232,0.3);text-decoration:none; }
+.ft a:hover { color:var(--saffron); }
+
+/* MODAL */
+.modal {
+  display:none;position:fixed;inset:0;z-index:200;
+  background:rgba(26,20,8,0.85);backdrop-filter:blur(8px);
+  align-items:center;justify-content:center;padding:24px;
+}
+.modal-box {
+  background:var(--bg);border:1px solid var(--border);
+  width:100%;max-width:480px;animation:fadeUp 0.25s ease;
+}
+.modal-hdr {
+  padding:20px 28px;border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.modal-title {
+  font-family:var(--fd);font-size:14px;font-weight:700;letter-spacing:1px;
+}
+.modal-close {
+  background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);
+}
+.modal-body { padding:28px; }
+.f-label {
+  font-family:var(--fm);font-size:9px;color:var(--muted);
+  letter-spacing:2px;margin-bottom:5px;display:block;
+}
+.f-input {
+  width:100%;background:transparent;border:1px solid var(--border2);
+  color:var(--ink);font-family:var(--fs);font-size:16px;
+  padding:10px 14px;outline:none;margin-bottom:16px;
+  transition:border-color 0.2s;
+}
+.f-input:focus { border-color:var(--ink); }
+.f-select {
+  width:100%;background:var(--bg);border:1px solid var(--border2);
+  color:var(--ink);font-family:var(--fm);font-size:11px;
+  padding:10px 14px;outline:none;cursor:pointer;margin-bottom:16px;
+}
+.f-submit {
+  width:100%;padding:14px;background:var(--ink);border:none;
+  color:var(--bg);font-family:var(--fm);font-size:11px;
+  font-weight:500;letter-spacing:2px;cursor:pointer;
+  transition:background 0.2s;
+}
+.f-submit:hover { background:var(--saffron); }
+.f-status {
+  display:none;padding:10px 14px;margin-top:12px;
+  font-family:var(--fm);font-size:10px;letter-spacing:1px;
+}
+.modal-foot {
+  margin-top:16px;text-align:center;
+  font-family:var(--fm);font-size:9px;color:var(--muted);letter-spacing:1px;
+}
+.modal-foot a { color:var(--ink);text-decoration:none; }
+
+/* Scroll reveal */
+.reveal { opacity:0;transform:translateY(20px);transition:all 0.6s ease; }
+.reveal.visible { opacity:1;transform:translateY(0); }
+
+/* Responsive */
+@media(max-width:900px){
+  .hero { grid-template-columns:1fr; }
+  .hero-right { padding:60px 32px; }
+  .hero-left { padding:60px 32px; border-right:none; border-bottom:1px solid var(--border2); }
+  .about { grid-template-columns:1fr;padding:80px 32px;gap:40px; }
+  .team { padding:80px 32px; }
+  .team-grid { grid-template-columns:1fr; }
+  .values { padding:80px 32px; }
+  .values-grid { grid-template-columns:1fr; }
+  .cta { padding:80px 32px; }
+  nav { padding:0 20px; }
+  .nav-links { display:none; }
+  footer { padding:24px 32px; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-mark"><span>ML</span></div>
+    <div>
+      <div class="nav-name">MANYU LOGICS</div>
+      <div class="nav-tagline">SOVEREIGN AI INFRASTRUCTURE</div>
+    </div>
+  </a>
+  <div class="nav-links">
+    <a href="#about">About</a>
+    <a href="#products">Products</a>
+    <a href="#team">Team</a>
+    <a href="mailto:contact@manyulogics.com">Contact</a>
+  </div>
+  <button class="nav-cta" onclick="openModal()">GET IN TOUCH</button>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <!-- Left -->
+  <div class="hero-left">
+    <div class="eyebrow">BENGALURU, INDIA · EST. 2026</div>
+    <h1 class="hero-h1">
+      Building<br>
+      <em>Sovereign</em><br>
+      AI for India
+    </h1>
+    <p class="hero-body">
+      Manyu Logics builds AI infrastructure for India's most regulated and critical sectors.
+      <em>On-premise. Compliant. Auditable.</em>
+      No foreign cloud. No data egress. No compromise.
+    </p>
+    <div class="hero-btns">
+      <a href="#products" class="btn-dark">OUR PRODUCTS</a>
+      <button class="btn-outline" onclick="openModal()">PARTNER WITH US</button>
+    </div>
+  </div>
+
+  <!-- Right — MCPilot showcase -->
+  <div class="hero-right" id="products">
+    <div class="hero-product">
+      <div class="product-label">◈ FLAGSHIP PRODUCT</div>
+      <div class="product-name">MC<span>Pilot</span></div>
+      <div class="product-tagline">Sovereign AI Gateway</div>
+      <div class="product-pills">
+        <div class="pill">
+          <span class="pill-icon">🛡️</span>
+          <span class="pill-text">DEFENCE — Classification-aware AI for Armed Forces</span>
+          <span class="pill-arrow">→</span>
+        </div>
+        <div class="pill">
+          <span class="pill-icon">🏦</span>
+          <span class="pill-text">BFSI — Financial document AI with PII redaction</span>
+          <span class="pill-arrow">→</span>
+        </div>
+        <div class="pill">
+          <span class="pill-icon">🏥</span>
+          <span class="pill-text">HEALTHCARE — Clinical document AI with OCR</span>
+          <span class="pill-arrow">→</span>
+        </div>
+      </div>
+      <a href="https://api.mcpilot.in/frontend/index.html" class="product-link" target="_blank">EXPLORE MCPILOT →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section class="about" id="about">
+  <div class="reveal">
+    <div class="about-label">◈ WHO WE ARE</div>
+    <h2 class="about-h2">Built in India.<br>For India.</h2>
+  </div>
+  <div class="about-body reveal">
+    <p>
+      Manyu Logics was founded with a single conviction — that India's most critical institutions deserve AI infrastructure built <strong>for their context</strong>, not adapted from tools designed for Silicon Valley.
+    </p>
+    <p>
+      Global AI platforms were not designed for Indian compliance frameworks, classified environments, or the linguistic and document diversity of our healthcare and financial systems. We build what didn't exist.
+    </p>
+    <p>
+      Our work sits at the intersection of <strong>sovereign deployment</strong>, <strong>regulatory compliance</strong> and <strong>practical AI orchestration</strong>. Every product we ship runs entirely within our client's infrastructure — no external API calls, no foreign cloud dependency, no recurring per-query costs.
+    </p>
+    <p>
+      We are a Bengaluru-based MSME, registration in progress. Our first product, MCPilot, is live and serving Defence, BFSI and Healthcare verticals.
+    </p>
+  </div>
+</section>
+
+<!-- TEAM -->
+<section class="team" id="team">
+  <div class="team-header reveal">
+    <div class="about-label">◈ FOUNDERS</div>
+    <h2 class="about-h2">The Team</h2>
+  </div>
+  <div class="team-grid">
+    <div class="team-card reveal">
+      <div class="team-initial">RV</div>
+      <div class="team-name">Rajkiran Veldur</div>
+      <div class="team-role">CO-FOUNDER · TECHNOLOGY</div>
+      <p class="team-bio">
+        Builds the architecture, writes the code and shapes the product vision. Focused on sovereign AI orchestration, defence-grade compliance systems and scalable backend infrastructure. Driven by the belief that India's critical sectors deserve AI built to their standard — not adapted from someone else's.
+      </p>
+    </div>
+    <div class="team-card reveal">
+      <div class="team-initial">NH</div>
+      <div class="team-name">Neha Harish</div>
+      <div class="team-role">CO-FOUNDER · BUSINESS</div>
+      <p class="team-bio">
+        Leads business development, partnerships and operations. Brings the strategic clarity to translate technical capability into client value — identifying the right sectors, building the right relationships and ensuring MCPilot reaches the organisations that need it most.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- VALUES -->
+<section class="values">
+  <div class="reveal">
+    <div class="about-label">◈ HOW WE WORK</div>
+    <h2 class="about-h2">Our Principles</h2>
+  </div>
+  <div class="values-grid">
+    <div class="value-card reveal">
+      <div class="value-num">01</div>
+      <div class="value-title">Sovereignty First</div>
+      <p class="value-desc">Every product we ship runs inside our client's infrastructure. We don't build products that require foreign cloud access to function.</p>
+    </div>
+    <div class="value-card reveal">
+      <div class="value-num">02</div>
+      <div class="value-title">Compliance by Design</div>
+      <p class="value-desc">Regulatory frameworks are requirements, not afterthoughts. DPDP Act, RBI, ABDM, Official Secrets Act — baked in from day one.</p>
+    </div>
+    <div class="value-card reveal">
+      <div class="value-num">03</div>
+      <div class="value-title">Honest Engineering</div>
+      <p class="value-desc">We build what works, not what demos well. Every feature is tested against real documents, real data and real operational scenarios.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="cta-eyebrow reveal">◈ WORK WITH US</div>
+  <h2 class="cta-h reveal">Partner with<br>Manyu Logics</h2>
+  <p class="cta-sub reveal">Defence procurement, BFSI deployment or Healthcare integration — let's talk.</p>
+  <div class="reveal">
+    <button class="btn-dark" style="background:var(--saffron);color:var(--bg)" onclick="openModal()">GET IN TOUCH</button>
+  </div>
+  <div class="cta-email reveal">
+    Direct enquiries → <a href="mailto:contact@manyulogics.com">contact@manyulogics.com</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="ft">© 2026 MANYU LOGICS · BENGALURU, INDIA · MSME REGISTRATION IN PROGRESS</div>
+  <div class="ft">
+    <a href="https://api.mcpilot.in/frontend/index.html">MCPILOT</a> &nbsp;·&nbsp;
+    <a href="mailto:contact@manyulogics.com">CONTACT</a>
+  </div>
+</footer>
+
+<!-- MODAL -->
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title">GET IN TOUCH</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="f-label">NAME</label>
+      <input id="f-name" class="f-input" type="text" placeholder="Your name">
+      <label class="f-label">ORGANISATION</label>
+      <input id="f-org" class="f-input" type="text" placeholder="Organisation">
+      <label class="f-label">EMAIL</label>
+      <input id="f-email" class="f-input" type="email" placeholder="your@email.com">
+      <label class="f-label">ENQUIRY TYPE</label>
+      <select id="f-vertical" class="f-select">
+        <option value="">Select type</option>
+        <option>MCPilot — Defence</option>
+        <option>MCPilot — BFSI</option>
+        <option>MCPilot — Healthcare</option>
+        <option>Partnership</option>
+        <option>Investment</option>
+        <option>Other</option>
+      </select>
+      <button class="f-submit" onclick="submitForm()">SEND ENQUIRY</button>
+      <div class="f-status" id="f-status"></div>
+      <div class="modal-foot">Or email: <a href="mailto:contact@manyulogics.com">contact@manyulogics.com</a></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function openModal(){
+  document.getElementById('modal').style.display='flex';
+  document.body.style.overflow='hidden';
+}
+function closeModal(){
+  document.getElementById('modal').style.display='none';
+  document.body.style.overflow='';
+}
+document.getElementById('modal').addEventListener('click',function(e){
+  if(e.target===this) closeModal();
+});
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape') closeModal();
+});
+
+async function submitForm(){
+  const name=document.getElementById('f-name').value.trim();
+  const org=document.getElementById('f-org').value.trim();
+  const email=document.getElementById('f-email').value.trim();
+  const vertical=document.getElementById('f-vertical').value;
+  const st=document.getElementById('f-status');
+  const btn=document.querySelector('.f-submit');
+
+  if(!name||!email||!vertical){
+    st.style.display='block';
+    st.style.background='rgba(232,96,28,0.08)';
+    st.style.color='var(--saffron2)';
+    st.style.border='1px solid rgba(232,96,28,0.2)';
+    st.textContent='Please fill in name, email and enquiry type.';
+    return;
+  }
+  btn.textContent='SENDING...';
+  btn.disabled=true;
+  st.style.display='none';
+
+  try {
+    const res=await fetch('https://api.mcpilot.in/contact/submit',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        name, org:org||'Not provided', email,
+        vertical: 'Manyu Logics — '+vertical,
+        message:'Via manyulogics.com contact form',
+      }),
+    });
+    if(res.ok){
+      st.style.display='block';
+      st.style.background='rgba(26,20,8,0.05)';
+      st.style.color='var(--ink)';
+      st.style.border='1px solid var(--border2)';
+      st.textContent='✓ Enquiry received. We will respond within 24 hours.';
+      btn.textContent='SENT ✓';
+      ['f-name','f-org','f-email'].forEach(id=>document.getElementById(id).value='');
+      document.getElementById('f-vertical').value='';
+    } else { throw new Error(); }
+  } catch(e){
+    st.style.display='block';
+    st.style.background='rgba(232,96,28,0.08)';
+    st.style.color='var(--saffron2)';
+    st.style.border='1px solid rgba(232,96,28,0.2)';
+    st.textContent='Submission failed. Please email contact@manyulogics.com directly.';
+    btn.textContent='SEND ENQUIRY';
+    btn.disabled=false;
+  }
+}
+
+// Scroll reveal
+const obs=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target);}
+  });
+},{threshold:0.1});
+document.querySelectorAll('.reveal').forEach(el=>obs.observe(el));
+</script>
+</body>
+</html>
