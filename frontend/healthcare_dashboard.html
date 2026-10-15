@@ -170,6 +170,12 @@
   .section-div{font-family:var(--font-mono);font-size:9px;color:var(--muted);
     letter-spacing:3px;padding:8px 0 4px;border-bottom:1px solid var(--border2);margin-bottom:10px;}
 
+  .ai-summary{white-space:pre-wrap;font-size:12px;line-height:1.6;color:var(--white);
+    padding:10px 12px;border-left:2px solid var(--teal);background:rgba(0,229,176,0.04);}
+  .ai-note{font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin:6px 0 4px;}
+  .note-section{font-size:12px;line-height:1.5;padding:6px 0;border-bottom:1px solid var(--border2);color:var(--white);}
+  .note-section .dk{display:block;margin-bottom:2px;}
+
   .pii-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;
     background:rgba(0,229,176,0.05);border:1px solid rgba(0,229,176,0.15);margin-top:12px;}
   .pii-chip{display:inline-block;font-family:var(--font-mono);font-size:8px;
@@ -387,7 +393,7 @@ function showError(msg) {
   document.getElementById('result-area').innerHTML = `
     <div style="padding:24px;border:1px solid rgba(255,51,68,0.3);background:rgba(255,51,68,0.05);
       font-family:var(--font-mono);font-size:11px;color:#FF3344;line-height:1.6;">
-      ✗ ERROR: ${msg}
+      ✗ ERROR: ${esc(typeof msg === 'string' ? msg : JSON.stringify(msg))}
     </div>`;
 }
 
@@ -428,6 +434,29 @@ function renderResult(resp) {
   html += dr('WORDS PROCESSED', resp.word_count || data.document_stats?.word_count || '—');
   if (data.document_type) html += dr('DOCUMENT TYPE', data.document_type.replace(/_/g,' '), 'teal');
 
+  // AI narrative summary (local Ollama model)
+  const ai = data.ai_summary;
+  if (ai) {
+    html += `<div class="section-div">AI CLINICAL SUMMARY</div>`;
+    if (ai.status === 'OK') {
+      html += `<div class="ai-summary">${esc(ai.text.replace(/\*\*/g, ''))}</div>
+        <div class="ai-note">Generated on-premise by ${esc(ai.model)} from the redacted document · verify against the source before clinical use</div>`;
+    } else {
+      html += `<div class="ai-note">AI summary unavailable — ${esc(ai.reason)}. Rule-based extraction shown below.</div>`;
+    }
+  }
+
+  // Note sections (rule-based)
+  const sectionLabels = {presenting_complaint:'PRESENTING COMPLAINT', history:'HISTORY', examination:'EXAMINATION',
+    investigations:'INVESTIGATIONS', impression:'IMPRESSION', plan:'PLAN / ADVICE'};
+  const sections = data.sections || {};
+  if (Object.keys(sections).length > 0) {
+    html += `<div class="section-div">NOTE SECTIONS</div>`;
+    Object.entries(sectionLabels).forEach(([key, label]) => {
+      if (sections[key]) html += `<div class="note-section"><div class="dk">${label}</div><div>${esc(sections[key])}</div></div>`;
+    });
+  }
+
   // Vitals grid
   const vitals = data.vitals || {};
   if (Object.keys(vitals).length > 0) {
@@ -438,6 +467,7 @@ function renderResult(resp) {
       spo2:           {icon:'🫁', label:'SpO2',           status:'spo2_status'},
       temperature:    {icon:'🌡️', label:'TEMPERATURE',    status:null},
       respiratory_rate:{icon:'💨',label:'RESP RATE',      status:null},
+      weight:         {icon:'⚖️', label:'WEIGHT',         status:null},
     };
     Object.entries(vitalMap).forEach(([key, info]) => {
       if (!vitals[key]) return;
@@ -446,7 +476,7 @@ function renderResult(resp) {
         : (status && status !== 'NORMAL') ? '#FF3344' : 'var(--teal)';
       html += `<div class="vital-cell">
         <div class="vital-label">${info.icon} ${info.label}</div>
-        <div class="vital-value" style="color:${col}">${vitals[key]}</div>
+        <div class="vital-value" style="color:${col}">${esc(vitals[key])}</div>
         ${status ? `<div class="vital-status" style="color:${col}">${status}</div>` : ''}
       </div>`;
     });
@@ -459,8 +489,8 @@ function renderResult(resp) {
     html += `<div class="section-div">CLINICAL ALERTS (${alerts.length})</div>`;
     alerts.forEach(a => {
       html += `<div class="alert-item">
-        <div class="alert-vital">◉ ${a.vital || a.alert}</div>
-        <div class="alert-action">${a.action}</div>
+        <div class="alert-vital">◉ ${esc(a.vital || a.alert)}</div>
+        <div class="alert-action">${esc(a.action)}</div>
       </div>`;
     });
   }
@@ -471,7 +501,7 @@ function renderResult(resp) {
     html += `<div class="section-div">DIAGNOSES</div>`;
     data.diagnoses.forEach(d => {
       html += `<div style="padding:4px 0;font-size:12px;border-bottom:1px solid var(--border2);
-        color:var(--white)">${d}</div>`;
+        color:var(--white)">${esc(d)}</div>`;
     });
   }
 
@@ -480,7 +510,7 @@ function renderResult(resp) {
   if (meds.length > 0) {
     html += `<div class="section-div">MEDICATIONS (${meds.length})</div>`;
     html += `<div style="padding:4px 0">`;
-    meds.forEach(m => { html += `<span class="med-chip">${m}</span>`; });
+    meds.forEach(m => { html += `<span class="med-chip">${esc(m)}</span>`; });
     html += `</div>`;
   }
 
@@ -492,9 +522,9 @@ function renderResult(resp) {
       const isHigh = i.severity === 'HIGH';
       html += `<div class="drug-item ${isHigh ? 'high' : 'medium'}">
         <div class="drug-pair" style="color:${isHigh ? '#FF3344' : 'var(--amber)'}">
-          ${i.drug_1 || i.drugs?.[0]} ↔ ${i.drug_2 || i.drugs?.[1]}
+          ${esc(i.drug_1 || i.drugs?.[0])} ↔ ${esc(i.drug_2 || i.drugs?.[1])}
         </div>
-        <div class="drug-risk">${i.risk} · ${i.action}</div>
+        <div class="drug-risk">${esc(i.risk)} · ${esc(i.action)}</div>
       </div>`;
     });
   }
@@ -525,7 +555,7 @@ function renderResult(resp) {
         : i === 0 ? 'var(--teal)' : 'var(--green)';
       html += `<div class="action-item">
         <div class="action-dot" style="background:${col}"></div>
-        <span style="font-size:11px">${a}</span>
+        <span style="font-size:11px">${esc(a)}</span>
       </div>`;
     });
   }
@@ -555,10 +585,15 @@ function renderResult(resp) {
   area.innerHTML = html;
 }
 
+// Escape document- and model-derived text before HTML insertion
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function dr(key, val, cls='') {
   return `<div class="data-row">
-    <span class="dk">${key}</span>
-    <span class="dv ${cls}">${val ?? '—'}</span>
+    <span class="dk">${esc(key)}</span>
+    <span class="dv ${cls}">${esc(val ?? '—')}</span>
   </div>`;
 }
 </script>

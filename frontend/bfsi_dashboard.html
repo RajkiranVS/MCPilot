@@ -158,6 +158,10 @@
   .flag-id{font-family:var(--font-mono);font-size:10px;color:#FF3344;
     letter-spacing:1px;margin-bottom:3px;}
   .flag-id.medium{color:var(--gold);}
+  .flag-evidence{font-size:11px;color:var(--white);font-style:italic;margin-bottom:3px;opacity:0.85;}
+  .ai-summary{white-space:pre-wrap;font-size:12px;line-height:1.6;color:var(--white);
+    padding:10px 12px;border-left:2px solid var(--gold);background:rgba(255,255,255,0.03);}
+  .ai-note{font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin:6px 0 4px;}
   .flag-desc{font-size:11px;color:var(--muted);margin-bottom:3px;}
   .flag-ref{font-family:var(--font-mono);font-size:9px;color:var(--muted2);}
 
@@ -401,7 +405,7 @@ function showError(msg) {
   document.getElementById('result-area').innerHTML = `
     <div style="padding:24px;border:1px solid rgba(255,51,68,0.3);background:rgba(255,51,68,0.05);
       font-family:var(--font-mono);font-size:11px;color:#FF3344;line-height:1.6;">
-      ✗ ERROR: ${msg}
+      ✗ ERROR: ${esc(typeof msg === 'string' ? msg : JSON.stringify(msg))}
     </div>`;
 }
 
@@ -449,6 +453,18 @@ function renderResult(resp) {
     html += dr('FILE', resp.filename, 'gold');
   }
 
+  // AI narrative summary (local Ollama model)
+  const ai = data.ai_summary;
+  if (ai) {
+    html += `<div class="section-div">AI SUMMARY</div>`;
+    if (ai.status === 'OK') {
+      html += `<div class="ai-summary">${esc(ai.text.replace(/\*\*/g, ''))}</div>
+        <div class="ai-note">Generated on-premise by ${esc(ai.model)} from the redacted document · verify figures against the source</div>`;
+    } else {
+      html += `<div class="ai-note">AI summary unavailable — ${esc(ai.reason)}. Rule-based extraction shown below.</div>`;
+    }
+  }
+
   // Financial figures
   if (data.financial_figures && Object.keys(data.financial_figures).length > 0) {
     html += `<div class="section-div">KEY FINANCIAL FIGURES</div>`;
@@ -483,9 +499,10 @@ function renderResult(resp) {
     flags.forEach(f => {
       const isHigh = f.severity === 'HIGH';
       html += `<div class="flag-item ${isHigh ? '' : 'medium'}">
-        <div class="flag-id ${isHigh ? '' : 'medium'}">◉ ${f.flag_id || f.type}</div>
-        <div class="flag-desc">${f.description}</div>
-        ${f.regulatory_reference ? `<div class="flag-ref">${f.regulatory_reference}</div>` : ''}
+        <div class="flag-id ${isHigh ? '' : 'medium'}">◉ ${esc(f.flag_id || f.type)} · ${esc(f.severity)}</div>
+        <div class="flag-desc">${esc(f.description)}</div>
+        ${f.evidence ? `<div class="flag-evidence">“…${esc(f.evidence)}…”</div>` : ''}
+        ${f.regulatory_reference ? `<div class="flag-ref">${esc(f.regulatory_reference)}</div>` : ''}
       </div>`;
     });
   }
@@ -513,7 +530,7 @@ function renderResult(resp) {
     if (clean.length > 0) {
       html += `<div style="padding:6px 0;font-size:11px;color:var(--muted)">Companies / Amounts: `;
       clean.slice(0,5).forEach(e => {
-        html += `<span style="color:var(--white);margin-right:8px">${e.value}</span>`;
+        html += `<span style="color:var(--white);margin-right:8px">${esc(e.value)}</span>`;
       });
       html += `</div>`;
     }
@@ -550,10 +567,15 @@ function renderResult(resp) {
   area.innerHTML = html;
 }
 
+// Escape document- and model-derived text before HTML insertion
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function dr(key, val, cls='') {
   return `<div class="data-row">
-    <span class="dk">${key}</span>
-    <span class="dv ${cls}">${val ?? '—'}</span>
+    <span class="dk">${esc(key)}</span>
+    <span class="dv ${cls}">${esc(val ?? '—')}</span>
   </div>`;
 }
 </script>

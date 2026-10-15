@@ -23,27 +23,45 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+try:                                    # imported as a package (gateway, tests)
+    from app.mcp.servers._local_llm import local_llm_summary
+except ImportError:                     # run as a script: python app/mcp/servers/bfsi_server.py
+    from _local_llm import local_llm_summary
+
 load_dotenv()
 mcp = FastMCP("BFSI Intelligence Server")
 
 # ── Financial document type classifier ────────────────────────────────────────
+# Weighted whole-word cues; highest score wins (first-match on substrings sent
+# anything containing "terms" to LEGAL_AGREEMENT and "identity" to KYC).
+_DOC_TYPE_CUES = {
+    "FINANCIAL_STATEMENT": [(r"balance sheet|statement of profit and loss|profit and loss|p&l|income statement|"
+                             r"cash flow statement", 2)],
+    "AUDIT_REPORT":        [(r"independent auditor'?s? report|audit report|statutory audit", 3),
+                            (r"auditors?|audit opinion|key audit matters", 1)],
+    "LOAN_DOCUMENT":       [(r"sanction letter|loan agreement|credit facility|term loan", 3),
+                            (r"loan|borrower|repayment|emi|collateral|hypothecation", 1)],
+    "KYC_DOCUMENT":        [(r"kyc|know your customer|ckyc", 3),
+                            (r"aadhaar|pan card|proof of identity|proof of address", 1)],
+    "INSURANCE_DOCUMENT":  [(r"insurance policy|policy schedule|sum assured|sum insured", 3),
+                            (r"claim|premium|insured|indemnity", 1)],
+    "ANNUAL_REPORT":       [(r"annual report|board'?s report|directors'? report|scheme information document|"
+                            r"factsheet|fund fact sheet", 3),
+                            (r"board of directors|agm|dividend|nav|asset management company|amc|"
+                             r"mutual fund|net asset value", 1)],
+    "LEGAL_AGREEMENT":     [(r"agreement|contract", 1), (r"whereas|hereinafter|witnesseth|in witness whereof", 2)],
+}
+
+
 def _classify_document(text: str) -> str:
     text_lower = text.lower()
-    if any(kw in text_lower for kw in ["balance sheet", "profit and loss", "p&l", "income statement"]):
-        return "FINANCIAL_STATEMENT"
-    if any(kw in text_lower for kw in ["audit report", "statutory audit", "auditor"]):
-        return "AUDIT_REPORT"
-    if any(kw in text_lower for kw in ["loan", "credit facility", "sanction letter", "term loan"]):
-        return "LOAN_DOCUMENT"
-    if any(kw in text_lower for kw in ["kyc", "know your customer", "aadhaar", "pan card", "identity"]):
-        return "KYC_DOCUMENT"
-    if any(kw in text_lower for kw in ["claim", "policy", "premium", "insured", "indemnity"]):
-        return "INSURANCE_DOCUMENT"
-    if any(kw in text_lower for kw in ["annual report", "board of directors", "agm", "dividend"]):
-        return "ANNUAL_REPORT"
-    if any(kw in text_lower for kw in ["agreement", "contract", "terms", "whereas", "hereinafter"]):
-        return "LEGAL_AGREEMENT"
-    return "FINANCIAL_DOCUMENT"
+    scores = {
+        doc_type: sum(weight * len(re.findall(rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])", text_lower))
+                      for pattern, weight in cues)
+        for doc_type, cues in _DOC_TYPE_CUES.items()
+    }
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "FINANCIAL_DOCUMENT"
 
 
 # ── Extract key financial figures ─────────────────────────────────────────────
@@ -95,56 +113,148 @@ def _extract_financials(text: str) -> dict:
 
 
 # ── AML/Compliance flag detection ─────────────────────────────────────────────
+# A flag needs a risk INDICATOR, not a mention. Legitimate documents routinely say
+# "loan sanctioned" (= approved), "event of default", "related party transactions
+# (Ind AS 24)", "SPV", or name Mauritius as an FDI source — none of that is a red flag.
+
+# FATF "call for action" jurisdictions. Override with BFSI_HIGH_RISK_JURISDICTIONS
+# (comma-separated) to match your compliance team's current list.
+_DEFAULT_HIGH_RISK_JURISDICTIONS = [
+    "democratic people's republic of korea", "north korea", "dprk", "iran", "myanmar",
+]
+
+
+def _high_risk_jurisdictions() -> list[str]:
+    configured = os.getenv("BFSI_HIGH_RISK_JURISDICTIONS", "")
+    names = [j.strip().lower() for j in configured.split(",") if j.strip()]
+    return names or _DEFAULT_HIGH_RISK_JURISDICTIONS
+
+
+_FLAG_RULES = [
+    ("ROUND_TRIPPING", "HIGH",
+     r"round[- ]?trip(?:ping|ped)?|circular (?:transactions?|trading|flow of funds)|"
+     r"layering of funds|layered transactions?",
+     "Possible round-tripping or layered transaction"),
+    ("SHELL_COMPANY", "MEDIUM",
+     r"shell (?:company|companies|entity|entities|corporation)|accommodation entr(?:y|ies)|"
+     r"bogus (?:company|companies|invoices?|billing)|dummy (?:company|companies|directors?)|"
+     r"no (?:real|genuine|actual) business (?:operations?|activity)",
+     "Shell-company indicator"),
+    ("SANCTION_RISK", "HIGH",
+     r"ofac|sdn list|specially designated nationals?|un (?:security council )?sanctions? list|"
+     r"sanctions? (?:list|screening hit|match)|subject to (?:international |economic )?sanctions|"
+     r"sanctioned (?:entity|entities|individuals?|persons?|countr(?:y|ies)|jurisdictions?|parties)|"
+     r"black-?listed",
+     "Potential sanctions exposure"),
+    ("CASH_TRANSACTION", "MEDIUM",
+     r"(?:large|bulk|substantial|unexplained|frequent) cash (?:deposits?|withdrawals?|transactions?)|"
+     r"structuring|smurfing|cash (?:deposits?|transactions?) (?:just )?below (?:the )?reporting",
+     "Large or structured cash activity"),
+    ("RELATED_PARTY", "LOW",
+     r"related[- ]party (?:loans?|advances?)|loans? (?:and advances )?to (?:promoters?|directors?)|"
+     r"promoter loans?|siphon(?:ing|ed)? of funds|diversion of funds",
+     "Related-party lending or fund diversion — verify arm's-length terms"),
+    ("NPL_RISK", "MEDIUM",
+     r"non-performing (?:assets?|accounts?|loans?)|npa|stressed assets?|wilful defaulters?|"
+     r"defaulted|(?:is|was|are|were|has been|have been) in default|"
+     r"overdue (?:for|by|since) (?:over |more than )?\d+|\d+\+? days past due|dpd|"
+     r"sma-?[012]|restructured (?:loans?|accounts?|advances?)",
+     "Non-performing or stressed asset indicator"),
+]
+
+# Negation in the same clause cancels a match: "not classified as an NPA", "no shell company".
+_NEGATION = re.compile(r"\b(?:no|not|nil|none|never|neither|nor|without|free (?:of|from))\b")
+
+
+def _negated(text_lower: str, start: int) -> bool:
+    clause_start = max(text_lower.rfind(c, 0, start) for c in ".;\n") + 1
+    return bool(_NEGATION.search(text_lower[max(clause_start, start - 60):start]))
+
+
+def _evidence(text: str, start: int, end: int) -> str:
+    return " ".join(text[max(0, start - 60):end + 60].split())
+
+
 def _detect_compliance_flags(text: str) -> list[dict]:
-    flags = []
     text_lower = text.lower()
+    # A jurisdiction counts only with an exposure context — market commentary
+    # ("crude prices before the Iran war") is not exposure.
+    exposure = (r"(?:incorporated|registered|domiciled|resident|based|located|headquartered|"
+                r"operating|branch(?:es)?|subsidiar(?:y|ies)|accounts?|banks?|counterpart(?:y|ies)|"
+                r"entit(?:y|ies)|nationals?|citizens?)\s+(?:in|of|at)|"
+                r"(?:transfers?|remittances?|wires?|payments?|funds?|shipments?|exports?|imports?|"
+                r"transactions?|dealings?|trade|business)\s+(?:to|from|with|in|involving)")
+    jurisdictions = "|".join(re.escape(j) for j in _high_risk_jurisdictions())
+    rules = _FLAG_RULES + [(
+        "UNUSUAL_GEOGRAPHY", "MEDIUM",
+        rf"(?:{exposure})(?:\s+(?:the|a|an))?\s+(?:{jurisdictions})",
+        "Exposure to FATF high-risk jurisdiction",
+    )]
 
-    flag_patterns = [
-        ("ROUND_TRIPPING",    ["round trip", "circular transaction", "layering"],
-         "Possible round-tripping or layered transaction detected"),
-        ("SHELL_COMPANY",     ["shell company", "special purpose vehicle", "spv", "offshore"],
-         "Reference to shell company or SPV structure"),
-        ("SANCTION_RISK",     ["sanctioned", "ofac", "un sanction", "blacklist"],
-         "Potential sanctions exposure detected"),
-        ("UNUSUAL_GEOGRAPHY", ["cayman", "panama", "british virgin", "mauritius", "seychelles"],
-         "High-risk jurisdiction referenced"),
-        ("CASH_TRANSACTION",  ["cash transaction", "cash deposit", "cash withdrawal"],
-         "Large cash transaction referenced"),
-        ("RELATED_PARTY",     ["related party", "associate company", "promoter loan"],
-         "Related party transaction detected"),
-        ("NPL_RISK",          ["non-performing", "npa", "stressed asset", "overdue", "default"],
-         "Non-performing or stressed asset indicator"),
-    ]
-
-    for flag_id, keywords, description in flag_patterns:
-        if any(kw in text_lower for kw in keywords):
+    flags = []
+    for flag_id, severity, pattern, description in rules:
+        for m in re.finditer(rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])", text_lower):
+            if _negated(text_lower, m.start()):
+                continue
             flags.append({
                 "flag_id":     flag_id,
                 "description": description,
-                "severity":    "HIGH" if flag_id in ("SANCTION_RISK", "ROUND_TRIPPING") else "MEDIUM",
-                "requires_review": True,
+                "severity":    severity,
+                "evidence":    _evidence(text, m.start(), m.end()),
+                "requires_review": severity != "LOW",
             })
-
+            break   # one flag per type; evidence is the first match
     return flags
+
+
+_SEVERITY_WEIGHT = {"HIGH": 35, "MEDIUM": 20, "LOW": 5}
+
+
+def _flag_risk(flags: list[dict]) -> int:
+    return sum(_SEVERITY_WEIGHT.get(f["severity"], 10) for f in flags)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TOOL 1: summarise_financial_document
 # ══════════════════════════════════════════════════════════════════════════════
+_SUMMARY_PROMPT = """You are a financial analyst at an Indian bank. Summarise the financial document below for a credit / compliance reviewer.
+
+Rules:
+- Use ONLY information stated in the document. Never invent figures, ratings, parties or conclusions.
+- Copy every amount, percentage, date and rating exactly as written, with its units (crore, lakh, %).
+- Placeholders such as [PERSON] or [CLINICAL_ID] are redacted identifiers. Do not guess them.
+- Do not call something a compliance risk unless the document states a concrete problem.
+  Routine disclosures (related-party transactions, subsidiaries abroad, standard risk factors) are not red flags.
+- If something is not in the document, write "Not documented".
+
+Write exactly these sections:
+Document:
+Key figures:
+Business / portfolio overview:
+Risks stated in the document:
+Points for the reviewer:
+
+Document:
+\"\"\"
+{document}
+\"\"\""""
+
+
 @mcp.tool()
-def summarise_financial_document(
+async def summarise_financial_document(
     document_text: str,
     document_type: str = "AUTO",
     output_format: str = "FINANCIAL_REPORT",
 ) -> dict:
     """
-    AI-powered financial document summariser.
+    Financial document summariser.
     Accepts any financial document (annual report, audit report, loan
-    application, KYC document, insurance claim, NBFC filing) and returns
-    a structured summary in Financial Reporting Standard format.
+    application, KYC document, insurance claim, NBFC filing, fund factsheet).
 
-    PII is automatically redacted before processing per DPDP Act 2023.
-    All PAN, Aadhaar, account numbers and card data are masked.
+    Returns rule-based extraction (figures, compliance flags with the evidence
+    that triggered them, risk score) plus a narrative summary from the local
+    Ollama model when available ("ai_summary"). The gateway redacts PII per
+    DPDP Act 2023 before this tool runs; nothing leaves the host.
 
     Args:
         document_text: Full text content of the financial document
@@ -241,7 +351,7 @@ def summarise_financial_document(
         }
 
     # Risk assessment
-    risk_score = min(len(compliance_flags) * 20 + (10 if not financials else 0), 100)
+    risk_score = min(_flag_risk(compliance_flags) + (10 if not financials else 0), 100)
     risk_level = "HIGH" if risk_score >= 60 else "MEDIUM" if risk_score >= 30 else "LOW"
 
     return {
@@ -254,6 +364,7 @@ def summarise_financial_document(
             "char_count":   char_count,
             "language":     "English",
         },
+        "ai_summary":       await local_llm_summary(_SUMMARY_PROMPT.format(document=document_text[:12000])),
         "summary":          summary_sections,
         "financial_figures": financials,
         "risk_assessment": {
@@ -391,22 +502,32 @@ def assess_credit_risk(
     if "debt free" in text_lower or "zero debt" in text_lower:
         indicators.append({"indicator": "Debt-free status", "impact": "+", "score_delta": -15})
         risk_score -= 15
-    if "credit rating" in text_lower and any(r in text_lower for r in ["aaa", "aa+", "aa"]):
-        indicators.append({"indicator": "High credit rating", "impact": "+", "score_delta": -10})
-        risk_score -= 10
+    rating = re.search(
+        r'(?:rating|rated)\b[^.\n]{0,40}?\b(?:crisil|icra|care|ind|india ratings|brickwork|acuite|infomerics)?'
+        r'[\s:]*\b(AAA|AA[+-]?|A[+-]?|BBB[+-]?|BB[+-]?|B[+-]?|C|D)(?![A-Za-z+-])',
+        document_text
+    )
+    if rating:
+        grade = rating.group(1)
+        delta = (-10 if grade.startswith("AA") else -5 if grade.startswith("A") and not grade.startswith("AA")
+                 else 0 if grade.startswith("BBB") else 15 if grade.startswith("B") else 30)
+        if delta:
+            indicators.append({"indicator": f"Credit rating {grade}", "impact": "+" if delta < 0 else "-",
+                               "score_delta": delta})
+            risk_score += delta
 
-    # Negative indicators
-    if flags:
-        risk_score += len(flags) * 10
-        for f in flags:
-            indicators.append({"indicator": f["description"], "impact": "-",
-                                "score_delta": 10})
-    if any(kw in text_lower for kw in ["loss", "net loss", "negative ebitda"]):
-        indicators.append({"indicator": "Net loss reported", "impact": "-", "score_delta": 20})
+    # Negative indicators — flags are weighted by severity (NPA/overdue live in NPL_RISK)
+    for f in flags:
+        delta = {"HIGH": 20, "MEDIUM": 10, "LOW": 3}.get(f["severity"], 10)
+        risk_score += delta
+        indicators.append({"indicator": f["description"], "impact": "-", "score_delta": delta,
+                           "evidence": f.get("evidence")})
+    net_loss = re.search(r'(?<![a-z])(?:net loss|loss (?:before|after) tax|loss for the (?:year|period)|'
+                         r'negative ebitda|ebitda loss)(?![a-z])', text_lower)
+    if net_loss and not _negated(text_lower, net_loss.start()):
+        indicators.append({"indicator": "Net loss reported", "impact": "-", "score_delta": 20,
+                           "evidence": _evidence(document_text, net_loss.start(), net_loss.end())})
         risk_score += 20
-    if "overdue" in text_lower or "npa" in text_lower:
-        indicators.append({"indicator": "NPA/overdue reference", "impact": "-", "score_delta": 25})
-        risk_score += 25
 
     risk_score = max(0, min(risk_score, 100))
     risk_rating = (
