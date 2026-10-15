@@ -7,7 +7,7 @@ asyncpg
 chromadb
 fastapi
 httpx
-mcp
+mcp>=1.26,<2
 numpy
 passlib[bcrypt]
 pdfplumber
