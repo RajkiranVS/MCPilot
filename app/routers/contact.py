@@ -2,11 +2,19 @@
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timezone
+from pathlib import Path
 import json, uuid
+from app.core.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/contact", tags=["Contact"])
+
+
+def _submissions_dir() -> Path:
+    path = Path(get_settings().contact_submissions_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 class ContactRequest(BaseModel):
     name:     str
@@ -27,15 +35,14 @@ async def submit_contact(payload: ContactRequest, request: Request) -> dict:
         "message":   payload.message or "No message",
         "submitted": now.isoformat(),
     }
-    logger.info(f"CONTACT | name={payload.name} email={payload.email} vertical={payload.vertical}")
+    logger.info(f"CONTACT | id={submission['id']} vertical={payload.vertical}")
     try:
-        import boto3
-        s3  = boto3.client("s3", region_name="ap-south-1")
-        key = f"contacts/{now.strftime('%Y-%m-%dT%H-%M-%S')}_{payload.name.replace(' ','_')}_{payload.vertical}.json"
-        s3.put_object(Bucket="mcpilot.in", Key=key, Body=json.dumps(submission, indent=2), ContentType="application/json")
-        logger.info(f"Saved to S3: {key}")
+        # Filename uses only server-generated values — never user input
+        path = _submissions_dir() / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}_{submission['id']}.json"
+        path.write_text(json.dumps(submission, indent=2), encoding="utf-8")
+        logger.info(f"Contact submission saved: {path.name}")
     except Exception as e:
-        logger.error(f"S3 store failed: {e}")
+        logger.error(f"Contact submission store failed: {e}")
     return {"status": "ok", "message": "Request received. We will respond within 24 hours."}
 
 @router.get("/submissions")
@@ -44,15 +51,12 @@ async def list_submissions(request: Request) -> dict:
     if "admin" not in scopes:
         raise HTTPException(status_code=403, detail="Admin scope required")
     try:
-        import boto3
-        s3 = boto3.client("s3", region_name="ap-south-1")
-        response = s3.list_objects_v2(Bucket="mcpilot.in", Prefix="contacts/")
-        submissions = []
-        for obj in response.get("Contents", []):
-            body = s3.get_object(Bucket="mcpilot.in", Key=obj["Key"])
-            submissions.append(json.loads(body["Body"].read()))
+        submissions = [
+            json.loads(f.read_text(encoding="utf-8"))
+            for f in _submissions_dir().glob("*.json")
+        ]
         submissions.sort(key=lambda x: x["submitted"], reverse=True)
         return {"total": len(submissions), "submissions": submissions}
     except Exception as e:
-        logger.error(f"S3 list failed: {e}")
+        logger.error(f"Contact submissions load failed: {e}")
         return {"total": 0, "submissions": [], "error": "Failed to load submissions"}

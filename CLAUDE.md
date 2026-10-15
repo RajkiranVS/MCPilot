@@ -36,8 +36,8 @@ alembic upgrade head
 ### Environment setup
 ```bash
 cp .env.example .env
-# Required: DATABASE_URL, AWS_SAGEMAKER_PHI_ENDPOINT, AWS_REGION
-# Optional: ANTHROPIC_API_KEY, SECRET_KEY (default is insecure dev value)
+# Required: DATABASE_URL, SECRET_KEY (default is insecure dev value; rejected outside development/test)
+# Optional: ADMIN_API_KEY, ANTHROPIC_API_KEY, CONTACT_SUBMISSIONS_DIR
 ```
 
 ## Architecture
@@ -72,9 +72,8 @@ POST /gateway/tool
 - Confidence threshold: 0.4
 
 **`app/compliance/`** — PHI detection (healthcare)
-- Calls AWS SageMaker BYOC endpoint for NER-based PHI detection
+- Local spaCy NER pipeline for PHI detection — fully on-prem, nothing leaves the host
 - `scan_input()` / `scan_output()`: redact PHI in parameters before dispatch and responses after
-- Falls back gracefully when `ENVIRONMENT=test` or endpoint unavailable
 
 **`app/db/`** — Async SQLAlchemy
 - Models: `MCPServer`, `MCPTool`, `HealthEvent`
@@ -88,7 +87,7 @@ POST /gateway/tool
 4. SlowAPI rate limiting
 
 **`app/routers/`**
-- `/health` — liveness + readiness (checks DB, vector store, SageMaker)
+- `/health` — liveness + readiness (checks DB, vector store)
 - `/gateway` — tool invocation (main business logic)
 - `/auth` — token/API key management (partial implementation)
 
@@ -96,12 +95,12 @@ POST /gateway/tool
 - Unit tests mock `MCPManager` — no real MCP connections
 - Integration tests spin up a real echo server via STDIO subprocess
 - `conftest.py` provides `client` (bare manager) and `integration_client` fixtures
-- `ENVIRONMENT=test` suppresses real AWS/DB connections throughout the codebase
+- `ENVIRONMENT=test` suppresses real DB connections throughout the codebase
 - Windows requires `asyncio.SelectorEventLoop` — set in conftest for integration tests
 
 ### Database Schema
 Tables: `mcp_servers`, `mcp_tools`, `health_events`. Migrations live in `alembic/versions/`.
 
 ### Hardcoded Dev Values (not for production)
-- Dev API key: `mcpilot-dev-key-001` (in `app/core/security.py`)
+- Dev API key: `mcpilot-dev-key-001` (in `app/middleware/auth.py`); admin key comes from `ADMIN_API_KEY`
 - Default `SECRET_KEY` in config is insecure — override in `.env` before deploying

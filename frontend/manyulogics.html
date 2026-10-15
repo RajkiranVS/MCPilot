@@ -477,7 +477,7 @@ footer {
           <span class="pill-arrow">→</span>
         </div>
       </div>
-      <a href="https://api.mcpilot.in/frontend/index.html" class="product-link" target="_blank">EXPLORE MCPILOT →</a>
+      <a href="/frontend/index.html" class="product-link" target="_blank">EXPLORE MCPILOT →</a>
     </div>
   </div>
 </section>
@@ -572,7 +572,7 @@ footer {
 <footer>
   <div class="ft">© 2026 MANYU LOGICS · BENGALURU, INDIA · MSME REGISTRATION IN PROGRESS</div>
   <div class="ft">
-    <a href="https://api.mcpilot.in/frontend/index.html">MCPILOT</a> &nbsp;·&nbsp;
+    <a href="/frontend/index.html">MCPILOT</a> &nbsp;·&nbsp;
     <a href="mailto:contact@manyulogics.com">CONTACT</a>
   </div>
 </footer>
@@ -645,7 +645,7 @@ async function submitForm(){
   st.style.display='none';
 
   try {
-    const res=await fetch('https://api.mcpilot.in/contact/submit',{
+    const res=await fetch('/contact/submit',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({

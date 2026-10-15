@@ -90,7 +90,6 @@ class MCPToolIndexer:
         Explicitly set local HuggingFace embedding model.
         Avoids requiring OpenAI API key.
         Model downloads ~130MB on first run, cached locally after.
-        Week 3: swap to AWS Bedrock embeddings.
         """
         Settings.embed_model = HuggingFaceEmbedding(
             model_name="BAAI/bge-small-en-v1.5"

@@ -1,26 +1,14 @@
 """
 MCPilot — PHI Client unit tests
-Tests local spaCy path (development mode).
-SageMaker path tested via integration test after endpoint deploy.
+Tests the local spaCy pipeline.
 """
 import pytest
-from unittest.mock import patch, MagicMock
 from app.compliance.phi_client import PHIClient
 
 
 @pytest.fixture
 def local_client():
-    """PHI client in development mode — uses local spaCy."""
-    with patch("app.compliance.phi_client.settings") as mock_settings:
-        mock_settings.environment = "development"
-        mock_settings.aws_sagemaker_phi_endpoint = ""
-        mock_settings.aws_region = "ap-south-1"
-        client = PHIClient()
-    return client
-
-
-def test_phi_client_uses_local_in_dev(local_client):
-    assert local_client._use_sagemaker is False
+    return PHIClient()
 
 
 def test_phi_client_detects_phi(local_client):
@@ -40,14 +28,3 @@ def test_phi_client_scan_dict(local_client):
     assert "Jane Doe" not in redacted["name"]
     assert redacted["note"] == "No PHI here"
 
-
-def test_phi_client_sagemaker_mode():
-    """Verify SageMaker mode is activated in production with endpoint set."""
-    with patch("app.compliance.phi_client.settings") as mock_settings:
-        with patch("app.compliance.phi_client.boto3") as mock_boto3:
-            mock_settings.environment = "production"
-            mock_settings.aws_sagemaker_phi_endpoint = "mcpilot-phi-detector"
-            mock_settings.aws_region = "ap-south-1"
-            mock_boto3.client.return_value = MagicMock()
-            client = PHIClient()
-    assert client._use_sagemaker is True
