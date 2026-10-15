@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from app.core.logging import get_logger
 from app.compliance.classification import registry as clearance_registry
-from app.compliance.pipeline import scan_output
+from app.compliance.pipeline import scan_input, scan_output
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/gateway/upload", tags=["Document Upload"])
@@ -238,6 +238,10 @@ async def analyse_document(
         params = {}
     params["document_text"] = document_text
 
+    # Redact PII before the document reaches any tool (or the tool's local LLM)
+    input_scan = await loop.run_in_executor(_executor, scan_input, params)
+    params = input_scan.redacted
+
     # Call MCP tool
     manager = request.app.state.mcp_manager
     try:
@@ -264,5 +268,6 @@ async def analyse_document(
             "audit_hash": gating.audit_hash,
         },
         "result":       output_scan.redacted,
-        "pii_detected": output_scan.phi_detected,
+        "pii_detected": input_scan.phi_detected or output_scan.phi_detected,
+        "pii_redacted_count": input_scan.redacted_count,
     }

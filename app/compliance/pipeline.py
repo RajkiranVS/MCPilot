@@ -8,8 +8,10 @@ Called from the gateway router on every tool invocation:
 
 Returns redacted data + compliance metadata for audit logging (BUILD-011).
 """
+import json
 from dataclasses import dataclass
 from app.compliance.phi_client import phi_client
+from app.compliance.phi_detector import scan_list
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -88,6 +90,18 @@ async def scan_input_async(parameters: dict) -> ComplianceResult:
     )
 
 
+def _parse_json_object(text: str) -> dict | list | None:
+    """Return the decoded value if a text block is a JSON object/array, else None."""
+    stripped = text.lstrip()
+    if not stripped.startswith(("{", "[")):
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, (dict, list)) else None
+
+
 def scan_output(result: dict, server_id: str = "") -> ComplianceResult:
     """
     Scan tool response for PHI before returning to client.
@@ -116,10 +130,11 @@ def scan_output(result: dict, server_id: str = "") -> ComplianceResult:
 
     for block in content:
         if isinstance(block, dict) and block.get("type") == "text":
-            detection = phi_client.detect(block.get("text", ""))
+            structured = _parse_json_object(block.get("text", ""))
             # Maritime server — coords and timestamps are operational, not PII
             if server_id == "maritime":
                 text = block.get("text", "")
+                detection = phi_client.detect(text)
                 safe_redactable = [
                     e for e in detection.entities
                     if e.redact and e.label not in ("COORD", "MILITARY_TIME", "AREA")
@@ -130,7 +145,16 @@ def scan_output(result: dict, server_id: str = "") -> ComplianceResult:
                 redacted_block = {**block, "text": redacted_text}
                 if safe_redactable:
                     any_phi = True
+            elif structured is not None:
+                # Structured tool result: scan each string field on its own. Scanning
+                # the JSON blob makes spaCy read escaped "\n" as word glue and tag
+                # spans across fields ("neuropraxia only)\n\nPlan") as names.
+                scan = phi_client.scan_dict if isinstance(structured, dict) else scan_list
+                redacted_value, found = scan(structured)
+                redacted_block = {**block, "text": json.dumps(redacted_value, ensure_ascii=False)}
+                any_phi = any_phi or found
             else:
+                detection = phi_client.detect(block.get("text", ""))
                 redacted_block = {**block, "text": detection.redacted_text}
                 if detection.phi_detected:
                     any_phi = True
