@@ -181,18 +181,23 @@
 </div>
 
 <script>
-  const API_BASE = 'http://localhost:8000';
+  const API_BASE = window.location.origin;  // same server that serves this page
   const API_KEY  = 'mcpilot-dev-key-001';
   let totalCalls = 0, PIIDetected = 0;
 
   function now() { return new Date().toTimeString().slice(0, 8); }
   setInterval(() => { document.getElementById('clock').textContent = now(); }, 1000);
 
+  // Escape untrusted text (user queries, API data) before HTML insertion
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   function addLog(msg, tag, cls) {
     const feed = document.getElementById('logFeed');
     const el = document.createElement('div');
     el.className = 'log-entry';
-    el.innerHTML = `<div class="log-time">${now()}</div><div class="log-msg">${msg}</div><div class="log-tag ${cls}">${tag}</div>`;
+    el.innerHTML = `<div class="log-time">${now()}</div><div class="log-msg">${esc(msg)}</div><div class="log-tag ${esc(cls)}">${esc(tag)}</div>`;
     feed.insertBefore(el, feed.firstChild);
     while (feed.children.length > 30) feed.removeChild(feed.lastChild);
   }
@@ -215,7 +220,7 @@
           : '<div class="log-tag tag-ok">OK</div>';
         el.innerHTML = `
           <div class="log-time">${new Date(r.created_at).toLocaleTimeString('en-GB')}</div>
-          <div class="log-msg">${r.server_id}.${r.tool_name} | ${r.tenant_id} | hash:${r.record_hash}</div>
+          <div class="log-msg">${esc(r.server_id)}.${esc(r.tool_name)} | ${esc(r.tenant_id)} | hash:${esc(r.record_hash)}</div>
           ${piiTag}
         `;
         fragment.appendChild(el);
@@ -225,7 +230,7 @@
   }
 
   function highlightPII(text) {
-    return text
+    return esc(text)
       .replace(/\[PERSON\]/g,    '<span class="PII-tag">[PERSON]</span>')
       .replace(/\[SSN\]/g,       '<span class="PII-tag">[SSN]</span>')
       .replace(/\[EMAIL\]/g,     '<span class="PII-tag">[EMAIL]</span>')
@@ -286,7 +291,7 @@
 
     } catch (e) {
       document.getElementById('redactedBox').textContent = 'Gateway unreachable';
-      document.getElementById('llmBox').textContent      = 'Ensure MCPilot is running on localhost:8000';
+      document.getElementById('llmBox').textContent      = 'Ensure the MCPilot server is running';
       document.getElementById('scanLabel').textContent   = '';
       addLog('Gateway connection failed — check MCPilot server', 'ERR', 'tag-err');
     }

@@ -404,7 +404,7 @@
 
 <script>
 const API_KEY = 'mcpilot-dev-key-001';
-const BASE    = 'https://api.mcpilot.in';
+const BASE    = window.location.origin;  // same server that serves this page (on-prem or prod)
 
 let currentMmsi  = '';
 let intelCount   = 0;
@@ -481,10 +481,10 @@ function renderVesselList(vessels, live) {
     const chipClass   = `vessel-chip${isDark ? ' dark-vessel' : ''}${isSelected ? ' selected' : ''}`;
     const sourceTag   = live ? '<span class="live-badge">LIVE</span>' : '<span class="sim-badge">SIM</span>';
 
-    return `<div class="${chipClass}" onclick="selectVessel('${v.mmsi}', ${v.lat||0}, ${v.lon||0})">
+    return `<div class="${chipClass}" onclick="selectVessel('${mmsiOf(v.mmsi)}', ${Number(v.lat)||0}, ${Number(v.lon)||0})">
       <div>
-        <div class="vessel-chip-name" style="${isDark ? 'color:var(--red)' : ''}">${isDark ? '◉ ' : ''}${v.name || 'UNKNOWN'}</div>
-        <div class="vessel-chip-mmsi">${v.mmsi} · ${(v.type||'UNK').toUpperCase()} · ${v.speed||0}kts ${sourceTag}</div>
+        <div class="vessel-chip-name" style="${isDark ? 'color:var(--red)' : ''}">${isDark ? '◉ ' : ''}${esc(v.name || 'UNKNOWN')}</div>
+        <div class="vessel-chip-mmsi">${esc(v.mmsi)} · ${esc((v.type||'UNK').toUpperCase())} · ${esc(v.speed||0)}kts ${sourceTag}</div>
       </div>
       <div class="vessel-chip-status ${statusClass}">${statusText}</div>
     </div>`;
@@ -508,11 +508,11 @@ function renderRadarBlips(vessels) {
 
     const blip = document.createElement('div');
     blip.className = `radar-blip ${blipClass}`;
-    blip.id = `blip-${v.mmsi}`;
+    blip.id = `blip-${mmsiOf(v.mmsi)}`;
     blip.style.cssText = `left:${x}%;top:${y}%;`;
     blip.title = v.name;
     blip.onclick = () => selectVessel(v.mmsi, v.lat, v.lon);
-    blip.innerHTML = `<div class="radar-label" style="${labelSide};top:-5px;color:${color}">${v.name?.substring(0,12) || v.mmsi}</div>`;
+    blip.innerHTML = `<div class="radar-label" style="${labelSide};top:-5px;color:${color}">${esc(v.name?.substring(0,12) || v.mmsi)}</div>`;
     container.appendChild(blip);
   });
 }
@@ -563,7 +563,7 @@ function showLoading(msg) {
   let el = document.getElementById('loading-indicator');
   if (!el) { el = document.createElement('div'); el.id = 'loading-indicator'; area.insertBefore(el, area.firstChild); }
   el.className = 'loading';
-  el.innerHTML = `<span>◈</span> ${msg} <span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
+  el.innerHTML = `<span>◈</span> ${esc(msg)} <span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
 }
 
 function removeLoading() {
@@ -673,7 +673,7 @@ function renderResult(toolname, resp) {
 
   let html = `<div class="result-card-header">
     <div class="result-card-title">◈ ${toolname.toUpperCase().replace(/_/g,' ')} ${srcBadge}</div>
-    <div class="alert-badge alert-${alertClass}">${alertLevel}</div>
+    <div class="alert-badge alert-${alertClass}">${esc(alertLevel)}</div>
   </div><div class="result-card-body">`;
 
   // ── list_vessels_in_zone ──
@@ -689,15 +689,15 @@ function renderResult(toolname, resp) {
       vessels.forEach(v => {
         const isDark = v.status === 'DARK_VESSEL' || v.type === 'Unknown';
         const typeColor = isDark ? 'red' : (v.type === 'Fishing' ? 'amber' : 'green');
-        html += `<div class="vessel-grid-item${isDark ? ' dark' : ''}" onclick="selectVessel('${v.mmsi}', ${v.lat||0}, ${v.lon||0})">
+        html += `<div class="vessel-grid-item${isDark ? ' dark' : ''}" onclick="selectVessel('${mmsiOf(v.mmsi)}', ${Number(v.lat)||0}, ${Number(v.lon)||0})">
           <div>
-            <div class="vg-name" style="${isDark ? 'color:var(--red)' : ''}">${isDark ? '◉ ' : ''}${v.name || 'UNKNOWN'}</div>
-            <div class="vg-mmsi">MMSI: ${v.mmsi}</div>
+            <div class="vg-name" style="${isDark ? 'color:var(--red)' : ''}">${isDark ? '◉ ' : ''}${esc(v.name || 'UNKNOWN')}</div>
+            <div class="vg-mmsi">MMSI: ${esc(v.mmsi)}</div>
           </div>
           <div style="text-align:right">
-            <div class="vg-type data-val ${typeColor}">${(v.type||'UNK').toUpperCase()}</div>
-            <div class="vg-pos">${v.lat||0}N ${v.lon||0}E</div>
-            <div class="vg-speed">${v.speed||0} kts</div>
+            <div class="vg-type data-val ${typeColor}">${esc((v.type||'UNK').toUpperCase())}</div>
+            <div class="vg-pos">${esc(v.lat||0)}N ${esc(v.lon||0)}E</div>
+            <div class="vg-speed">${esc(v.speed||0)} kts</div>
           </div>
         </div>`;
       });
@@ -748,7 +748,7 @@ function renderResult(toolname, resp) {
     if ((data.anomalies||[]).length > 0) {
       html += `<div class="section-divider">ANOMALIES</div>`;
       data.anomalies.forEach(a => {
-        html += `<div class="anomaly-item"><div class="anomaly-type">◉ ${a.type}</div><div class="anomaly-desc">${a.description}</div><div class="anomaly-confidence">CONFIDENCE: ${a.confidence}%</div></div>`;
+        html += `<div class="anomaly-item"><div class="anomaly-type">◉ ${esc(a.type)}</div><div class="anomaly-desc">${esc(a.description)}</div><div class="anomaly-confidence">CONFIDENCE: ${esc(a.confidence)}%</div></div>`;
       });
     }
     html += dataRow('RESPONSE', data.recommended_response, alertClass);
@@ -776,7 +776,7 @@ function renderResult(toolname, resp) {
     if ((data.results||[]).length > 0) {
       html += `<div class="section-divider">MATCHING PANS NOTICES</div>`;
       data.results.forEach(p => {
-        html += `<div class="pans-item"><div class="pans-id">${p.pans_id}</div><div class="pans-title">${p.title}</div><div class="pans-area">◈ ${p.area}</div><div class="pans-detail">${p.details}</div><div class="pans-valid">VALID: ${p.valid_from} → ${p.valid_to} · ${p.authority}</div></div>`;
+        html += `<div class="pans-item"><div class="pans-id">${esc(p.pans_id)}</div><div class="pans-title">${esc(p.title)}</div><div class="pans-area">◈ ${esc(p.area)}</div><div class="pans-detail">${esc(p.details)}</div><div class="pans-valid">VALID: ${esc(p.valid_from)} → ${esc(p.valid_to)} · ${esc(p.authority)}</div></div>`;
       });
     }
     addIntel(`PANS: ${data.results_found||0} notices found`, (data.results_found||0) > 0 ? 'amber' : 'blue');
@@ -798,11 +798,11 @@ function renderResult(toolname, resp) {
     html += dataRow('VOI RANKING', r.voi_ranking || '—', alertClass);
     if ((data.anomalies||[]).length > 0) {
       html += `<div class="section-divider">ANOMALIES</div>`;
-      data.anomalies.forEach(a => { html += `<div class="anomaly-item"><div class="anomaly-type">◉ ${a.type}</div><div class="anomaly-desc">${a.description}</div><div class="anomaly-confidence">CONFIDENCE: ${a.confidence}%</div></div>`; });
+      data.anomalies.forEach(a => { html += `<div class="anomaly-item"><div class="anomaly-type">◉ ${esc(a.type)}</div><div class="anomaly-desc">${esc(a.description)}</div><div class="anomaly-confidence">CONFIDENCE: ${esc(a.confidence)}%</div></div>`; });
     }
     if ((data.factors_of_suspicion||[]).length > 0) {
       html += `<div class="section-divider">FACTORS OF SUSPICION</div>`;
-      data.factors_of_suspicion.forEach(f => { html += `<div style="padding:4px 0;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border2);display:flex;gap:8px"><span style="color:var(--red)">◉</span>${f}</div>`; });
+      data.factors_of_suspicion.forEach(f => { html += `<div style="padding:4px 0;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border2);display:flex;gap:8px"><span style="color:var(--red)">◉</span>${esc(f)}</div>`; });
     }
     if ((data.recommended_actions||[]).length > 0) {
       html += `<div class="section-divider">RECOMMENDED ACTIONS</div>`;
@@ -810,7 +810,7 @@ function renderResult(toolname, resp) {
         const p = a.split(': ')[0];
         const t = a.split(': ').slice(1).join(': ');
         const pc = p === 'IMMEDIATE' ? 'immediate' : p === 'HIGH' ? 'high' : p === 'MEDIUM' ? 'medium' : 'routine';
-        html += `<div class="action-item"><span class="action-priority priority-${pc}">${p}</span><span>${t}</span></div>`;
+        html += `<div class="action-item"><span class="action-priority priority-${esc(pc)}">${esc(p)}</span><span>${esc(t)}</span></div>`;
       });
     }
     html += dataRow('VESSELS IN ZONE', data.live_vessels_in_zone || 0, 'amber');
@@ -824,7 +824,7 @@ function renderResult(toolname, resp) {
 }
 
 function dataRow(key, val, valClass) {
-  return `<div class="data-row"><span class="data-key">${key}</span><span class="data-val ${valClass||''}">${val??'—'}</span></div>`;
+  return `<div class="data-row"><span class="data-key">${esc(key)}</span><span class="data-val ${esc(valClass||'')}">${esc(val??'—')}</span></div>`;
 }
 
 function riskBar(label, score) {
@@ -832,6 +832,12 @@ function riskBar(label, score) {
   const color = pct > 75 ? 'var(--red)' : pct > 50 ? 'var(--amber)' : pct > 25 ? 'var(--blue)' : 'var(--green)';
   return `<div class="risk-bar-container"><div class="risk-bar-label"><span class="data-key">${label}</span><span class="data-val" style="color:${color}">${pct}/100</span></div><div class="risk-bar-track"><div class="risk-bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
 }
+
+// Escape untrusted text (AIS vessel names, tool output) before HTML insertion
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+const mmsiOf = v => String(v ?? '').replace(/\D/g, '');
 
 function addIntel(text, type) {
   const feed = document.getElementById('intel-feed');
@@ -841,7 +847,7 @@ function addIntel(text, type) {
   if (empty) empty.remove();
   const item = document.createElement('div');
   item.className = `intel-item ${type}`;
-  item.innerHTML = `<div class="intel-time">${ts}</div><div class="intel-text">${text}</div>`;
+  item.innerHTML = `<div class="intel-time">${ts}</div><div class="intel-text">${esc(text)}</div>`;
   feed.insertBefore(item, feed.firstChild);
   intelCount++;
   document.getElementById('intel-count').textContent = `${intelCount} EVENTS`;

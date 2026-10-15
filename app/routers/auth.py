@@ -38,7 +38,7 @@ async def issue_token(x_api_key: str = Header(...)) -> TokenResponse:
         tenant_id=key_data["tenant_id"],
         scopes=key_data["scopes"],
     )
-    logger.info(f"Token issued | client={key_data['client_id']}")
+    logger.info("Token issued via API key exchange")
     return TokenResponse(
         access_token=token,
         expires_in_minutes=60,

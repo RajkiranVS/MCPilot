@@ -204,12 +204,14 @@ def _extend_facility_with_location(text: str, entities: list[PHIEntity]) -> list
                 end = end + after_match.end()
 
         # Check word BEFORE facility (e.g. Ambala → Airbase)
-        preceding = text[:start]
-        before_match = re.search(r'(\w+)\s*$', preceding)
-        if before_match:
-            word = before_match.group(1)
-            if word.lower() in LOCATION_NAMES:
-                start = before_match.start()
+        # Scan backwards instead of regex — r'(\w+)\s*$' backtracks polynomially on untrusted input
+        preceding = text[:start].rstrip()
+        word_start = len(preceding)
+        while word_start > 0 and (preceding[word_start - 1].isalnum() or preceding[word_start - 1] == "_"):
+            word_start -= 1
+        word = preceding[word_start:]
+        if word and word.lower() in LOCATION_NAMES:
+            start = word_start
 
         result.append(PHIEntity(
             text=text[start:end],
