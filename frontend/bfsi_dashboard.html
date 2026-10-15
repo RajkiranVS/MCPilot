@@ -361,7 +361,7 @@ async function runAnalysis() {
   btn.disabled = true;
 
   // Show loading
-  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('empty-state')?.style.setProperty('display', 'none');  // gone after the first run: result-area is replaced
   document.getElementById('result-area').innerHTML = `
     <div class="loading-overlay" style="display:flex;height:100%;">
       <div class="spinner"></div>

@@ -349,7 +349,7 @@ async function runAnalysis() {
   btn.disabled = true;
   const age = parseInt(document.getElementById('patient-age').value) || 0;
 
-  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('empty-state')?.style.setProperty('display', 'none');  // gone after the first run: result-area is replaced
   document.getElementById('result-area').innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;">
       <div style="width:40px;height:40px;border:2px solid var(--border);border-top-color:var(--teal);
