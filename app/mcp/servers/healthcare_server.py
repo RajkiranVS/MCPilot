@@ -24,59 +24,72 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+try:                                    # imported as a package (gateway, tests)
+    from app.mcp.servers._local_llm import local_llm_summary
+except ImportError:                     # run as a script: python app/mcp/servers/healthcare_server.py
+    from _local_llm import local_llm_summary
+
 load_dotenv()
 mcp = FastMCP("Healthcare Intelligence Server")
 
 
 # ── Clinical document classifier ──────────────────────────────────────────────
+# Each type scores weighted whole-word cues; the highest score wins. Whole-word
+# matching matters: plain substrings misfire ("mg" inside "NCS/EMG", "od" in "body").
+_DOC_TYPE_CUES = {
+    "DISCHARGE_SUMMARY": [(r"discharge summary|discharge note|date of discharge", 3),
+                          (r"discharged on|condition at discharge|discharge medications?", 2)],
+    "LAB_REPORT":        [(r"lab(?:oratory)? report|laboratory", 3),
+                          (r"ha?emoglobin|hba1c|creatinine|wbc|rbc|platelets?|"
+                           r"bilirubin|reference range|biological ref", 1)],
+    "PRESCRIPTION":      [(r"prescription", 3), (r"rx", 2),
+                          (r"tab(?:let)?s?\.?|cap(?:sule)?s?\.?|syp\.?|syrup|inj\.?", 1),
+                          (r"\d+(?:\.\d+)?\s*mg|twice daily|od|bd|tds|hs|sos", 1)],
+    "INSURANCE_CLAIM":   [(r"claim|pre-?auth|cashless|tpa|policy number|insured", 2)],
+    "OPERATIVE_NOTES":   [(r"operative notes?|operation theatre|anaesthesia|anesthesia", 3),
+                          (r"incision|suture|procedure performed", 1)],
+    "RADIOLOGY_REPORT":  [(r"radiology", 3), (r"x-?ray|mri|ct scan|ultrasound|usg|hrct", 2),
+                          (r"findings", 1)],
+    "CLINICAL_NOTES":    [(r"opd notes?|out-?patient|consultation notes?|progress notes?", 3),
+                          (r"chief complaints?|presenting complaints?|history of present illness|hopi", 2),
+                          (r"o/e|on examination|examination|imp|impression|provisional diagnosis|"
+                           r"advice|plan|follow[- ]up", 1)],
+}
+
+
 def _classify_clinical_document(text: str) -> str:
     text_lower = text.lower()
-    if any(kw in text_lower for kw in ["discharge summary", "discharge note",
-                                        "date of discharge", "discharged on"]):
-        return "DISCHARGE_SUMMARY"
-    if any(kw in text_lower for kw in ["lab report", "laboratory", "haemoglobin",
-                                        "hba1c", "creatinine", "wbc", "rbc", "platelet"]):
-        return "LAB_REPORT"
-    if any(kw in text_lower for kw in ["prescription", "rx", "tablet", "capsule",
-                                        "syrup", "mg", "dosage", "twice daily", "od", "bd", "tds"]):
-        return "PRESCRIPTION"
-    if any(kw in text_lower for kw in ["claim", "pre-auth", "preauth", "cashless",
-                                        "tpa", "policy number", "insured"]):
-        return "INSURANCE_CLAIM"
-    if any(kw in text_lower for kw in ["operative notes", "operation theatre",
-                                        "anaesthesia", "incision", "suture"]):
-        return "OPERATIVE_NOTES"
-    if any(kw in text_lower for kw in ["radiology", "x-ray", "mri", "ct scan",
-                                        "ultrasound", "impression", "findings"]):
-        return "RADIOLOGY_REPORT"
-    if any(kw in text_lower for kw in ["history", "presenting complaint", "chief complaint",
-                                        "hopi", "examination", "diagnosis"]):
-        return "CLINICAL_NOTES"
-    return "CLINICAL_DOCUMENT"
+    scores = {
+        doc_type: sum(weight * len(re.findall(rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])", text_lower))
+                      for pattern, weight in cues)
+        for doc_type, cues in _DOC_TYPE_CUES.items()
+    }
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "CLINICAL_DOCUMENT"
 
 
 # ── Vital signs extractor ─────────────────────────────────────────────────────
 def _extract_vitals(text: str) -> dict:
     vitals = {}
 
-    bp = re.search(
-        r'(?:bp|blood pressure|b\.p\.?)[\s:]*(\d{2,3})\s*/\s*(\d{2,3})',
-        text, re.IGNORECASE
-    )
-    if bp:
-        vitals["blood_pressure"] = f"{bp.group(1)}/{bp.group(2)} mmHg"
-        sys_val = int(bp.group(1))
-        dia_val = int(bp.group(2))
+    def find(pattern: str):
+        # Labels must be whole words — "hr" must not match inside "chronic"
+        return re.search(rf'(?<![A-Za-z]){pattern}', text, re.IGNORECASE)
+
+    bp = find(r'(?:bp|blood pressure|b\.p\.?)[\s:]*(\d{2,3})\s*/\s*(\d{2,3})')
+    systolic = find(r'(?:bp\s*)?systolic(?:\s*bp)?[\s:]*(\d{2,3})')
+    diastolic = find(r'(?:bp\s*)?diastolic(?:\s*bp)?[\s:]*(\d{2,3})')
+    if bp or (systolic and diastolic):
+        sys_val = int(bp.group(1) if bp else systolic.group(1))
+        dia_val = int(bp.group(2) if bp else diastolic.group(1))
+        vitals["blood_pressure"] = f"{sys_val}/{dia_val} mmHg"
         vitals["bp_status"] = (
             "HYPERTENSIVE" if sys_val >= 140 or dia_val >= 90
             else "HYPOTENSIVE" if sys_val < 90
             else "NORMAL"
         )
 
-    pulse = re.search(
-        r'(?:pulse|hr|heart rate|p/r)[\s:]*(\d{2,3})\s*(?:bpm|/min|beats)?',
-        text, re.IGNORECASE
-    )
+    pulse = find(r'(?:pulse(?:\s*rate)?|heart\s*rate|hr|pr|p/r)\b[\s:]*(\d{2,3})')
     if pulse:
         pr = int(pulse.group(1))
         vitals["pulse"] = f"{pr} bpm"
@@ -86,33 +99,24 @@ def _extract_vitals(text: str) -> dict:
             else "NORMAL"
         )
 
-    temp = re.search(
-        r'(?:temp|temperature|t)[\s:]*(\d{2,3}(?:\.\d)?)\s*(?:°?[fc]|degree)?',
-        text, re.IGNORECASE
-    )
+    temp = find(r'(?:temp|temperature|t)\b\.?[\s:]*(\d{2,3}(?:\.\d)?)\s*(°?\s*[fc]\b|degree)?')
     if temp:
-        vitals["temperature"] = f"{temp.group(1)}°F"
+        value = float(temp.group(1))
+        unit = (temp.group(2) or "").strip(" °").upper()
+        celsius = unit == "C" or (not unit and value < 45)
+        vitals["temperature"] = f"{temp.group(1)}°{'C' if celsius else 'F'}"
 
-    spo2 = re.search(
-        r'(?:spo2|o2 sat|oxygen saturation|saturation)[\s:]*(\d{2,3})\s*%?',
-        text, re.IGNORECASE
-    )
+    spo2 = find(r'(?:spo2|o2 sat|oxygen saturation|saturation)\b[\s:]*(\d{2,3})\s*%?')
     if spo2:
         sat = int(spo2.group(1))
         vitals["spo2"] = f"{sat}%"
         vitals["spo2_status"] = "LOW" if sat < 95 else "NORMAL"
 
-    rr = re.search(
-        r'(?:rr|resp rate|respiratory rate)[\s:]*(\d{1,2})\s*(?:/min)?',
-        text, re.IGNORECASE
-    )
+    rr = find(r'(?:rr|resp(?:iratory)?\s*rate|respiration)\b[\s:]*(\d{1,2})\b')
     if rr:
         vitals["respiratory_rate"] = f"{rr.group(1)}/min"
 
-    weight = re.search(
-        r'(?:weight|wt)[\s:]*(\d{2,3}(?:\.\d)?)\s*(?:kg|kgs)?',
-        text, re.IGNORECASE
-    )
+    weight = find(r'(?:weight|wt)\b\.?[\s:]*(\d{2,3}(?:\.\d)?)\s*(?:kg|kgs)?')
     if weight:
         vitals["weight"] = f"{weight.group(1)} kg"
 
@@ -173,35 +177,117 @@ def _extract_medications(text: str) -> list[str]:
         "ssri", "sertraline", "fluoxetine", "amiodarone", "clarithromycin",
     ]
     text_lower = text.lower()
-    found = [drug for drug in common_drugs if drug in text_lower]
+    found = [drug for drug in common_drugs
+             if re.search(rf'(?<![a-z]){re.escape(drug)}(?![a-z])', text_lower)]
 
-    # Also extract Rx patterns
+    # Names written after a dosage form: "Tab. Pantocid 40mg", "Inj Ceftriaxone"
+    for m in re.finditer(r'\b(?:tab(?:let)?s?|cap(?:sule)?s?|inj(?:ection)?|syp|syrup|oint(?:ment)?)\b\.?\s+'
+                         r'([A-Za-z][A-Za-z\-]{3,})', text, re.IGNORECASE):
+        name = m.group(1).lower()
+        if name not in found:
+            found.append(name)
+
+    # Generic names with drug-class suffixes. Only suffixes specific to drugs —
+    # endings like -ide/-ine/-one also match ordinary words ("side", "examine").
     rx_pattern = re.findall(
-        r'\b([A-Za-z]+(?:cillin|mycin|oxacin|prazole|sartan|olol|statin|pril|'
-        r'vir|mab|nib|tide|zole|ine|one|ide))\b',
+        r'\b([A-Za-z]{3,}(?:cillin|mycin|micin|oxacin|cycline|prazole|tidine|sartan|olol|statin|'
+        r'pril|dipine|gliptin|gliflozin|formin|parin|semide|thiazide|azepam|triptan|dronate|'
+        r'cortisone|olone|asone|profen|fenac|vir|mab|tinib))\b',
         text, re.IGNORECASE
     )
     found.extend([r.lower() for r in rx_pattern if r.lower() not in found])
-    return list(set(found))[:20]
+    return list(dict.fromkeys(found))[:20]
+
+
+# ── Diagnoses ─────────────────────────────────────────────────────────────────
+def _extract_diagnoses(text: str) -> list[str]:
+    """Text after a diagnosis-type heading — inline ("Dx: X") or on the next line ("Imp\nX")."""
+    found = re.findall(
+        r'(?<![A-Za-z])(?:final diagnosis|provisional diagnosis|diagnosis|dx|impression|imp|assessment)'
+        r'\b\.?[ \t]*[:\-]?[ \t]*\r?\n?[ \t]*([^\n]{5,160})',
+        text, re.IGNORECASE
+    )
+    return [d.strip(" .:-") for d in found if d.strip(" .:-")][:5]
+
+
+# ── Clinical note sections ────────────────────────────────────────────────────
+# Heading → section key. A section runs until the next recognised heading.
+_SECTION_HEADINGS = [
+    (r'chief complaints?|presenting complaints?|c/o|complaints?', "presenting_complaint"),
+    (r'history of present(?:ing)? illness|hopi|history|opd notes?|clinical notes?', "history"),
+    (r'o/e|on examination|examination|general examination|systemic examination', "examination"),
+    (r'investigations?|labs?|reports?', "investigations"),
+    (r'final diagnosis|provisional diagnosis|diagnosis|impression|imp|assessment', "impression"),
+    (r'advice|plan|treatment|management|rx|follow[- ]?up', "plan"),
+]
+_HEADING_RE = re.compile(
+    r'^[ \t]*(' + '|'.join(p for p, _ in _SECTION_HEADINGS) + r')\b[ \t]*[:.\-]?[ \t]*',
+    re.IGNORECASE | re.MULTILINE
+)
+
+
+def _extract_sections(text: str) -> dict:
+    """Split a clinical note on its line-start headings (OPD Notes, O/E, Imp, Advice...)."""
+    matches = list(_HEADING_RE.finditer(text))
+    sections: dict[str, str] = {}
+    for i, m in enumerate(matches):
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = " ".join(text[m.end():body_end].split())
+        if not body:
+            continue
+        heading = m.group(1).lower()
+        key = next(k for p, k in _SECTION_HEADINGS if re.fullmatch(p, heading))
+        sections[key] = (sections[key] + " " + body if key in sections else body)[:600]
+    return sections
+
+
+# ── On-prem LLM narrative summary (Ollama) ────────────────────────────────────
+_SUMMARY_PROMPT = """You are a clinical documentation assistant. Summarise the clinical document below for a treating clinician.
+
+Rules:
+- Use ONLY information stated in the document. Never invent findings, diagnoses, doses or plans.
+- Copy every number, grade, dose and unit exactly as written, keeping each value with its own label.
+- Placeholders such as [PERSON] or [CLINICAL_ID] are redacted identifiers. Do not guess them.
+- If a section has no information in the document, write "Not documented".
+- Be concise and clinical.
+
+Write exactly these sections:
+Presenting complaint:
+Key findings:
+Impression:
+Plan / advice:
+Red flags:
+
+Document:
+\"\"\"
+{document}
+\"\"\""""
+
+
+async def _llm_summary(document_text: str) -> dict:
+    """Narrative summary of the (already PHI-redacted) document from the local model."""
+    return await local_llm_summary(_SUMMARY_PROMPT.format(document=document_text[:12000]))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TOOL 1: summarise_clinical_document
 # ══════════════════════════════════════════════════════════════════════════════
 @mcp.tool()
-def summarise_clinical_document(
+async def summarise_clinical_document(
     document_text: str,
     document_type: str = "AUTO",
     output_format: str = "CLINICAL_SUMMARY",
 ) -> dict:
     """
-    AI-powered clinical document summariser.
+    Clinical document summariser.
     Accepts any clinical document — discharge summary, lab report,
     prescription, operative notes, radiology report or clinical notes.
-    Returns structured summary per ABDM standards with PII redaction.
 
-    Patient PII (name, ABHA number, MRN, Aadhaar) is automatically
-    redacted per DPDP Act 2023 before any processing.
+    Returns rule-based structured extraction (vitals, diagnoses, medications,
+    note sections, risk flags) plus a narrative summary from the local Ollama
+    model when available ("ai_summary"). The gateway redacts patient PII
+    (name, hospital/visit numbers, ABHA, Aadhaar) per DPDP Act 2023 before
+    this tool runs; nothing leaves the host.
 
     Args:
         document_text: Full text of the clinical document
@@ -224,13 +310,8 @@ def summarise_clinical_document(
     interactions = _check_drug_interactions(medications)
     word_count = len(document_text.split())
 
-    # Extract diagnoses (ICD-10 context)
-    diagnoses = []
-    diag_patterns = re.findall(
-        r'(?:diagnosis|dx|impression|assessment|final diagnosis)[\s:]+([^\n.]{5,80})',
-        document_text, re.IGNORECASE
-    )
-    diagnoses = [d.strip() for d in diag_patterns[:5]]
+    diagnoses  = _extract_diagnoses(document_text)
+    sections   = _extract_sections(document_text)
 
     # Build summary by document type
     summary = {}
@@ -273,6 +354,7 @@ def summarise_clinical_document(
     else:
         summary = {
             "document_overview": f"Clinical document — {word_count} words processed",
+            **sections,
             "diagnoses":         diagnoses or ["See original document"],
             "medications":       medications,
             "vitals_found":      bool(vitals),
@@ -295,7 +377,9 @@ def summarise_clinical_document(
         "output_format": output_format,
         "processed_at":  datetime.now(timezone.utc).isoformat(),
         "document_stats": {"word_count": word_count, "language": "English"},
+        "ai_summary":       await _llm_summary(document_text),
         "clinical_summary": summary,
+        "sections":         sections,
         "vitals":           vitals,
         "medications":      medications,
         "drug_interactions": interactions,
