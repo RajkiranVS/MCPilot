@@ -10,15 +10,24 @@ Each tool becomes one Document:
 This gives the retriever enough signal to match natural language
 intent to the correct tool and server.
 """
+from __future__ import annotations
+
 import json
-import chromadb
-from llama_index.core import VectorStoreIndex, Document, StorageContext, Settings
-from llama_index.core.node_parser import SentenceSplitter
-from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# The slim production image (requirements-linux.txt) omits the ML stack.
+# Without it the indexer stays "not ready" and semantic routing returns no matches.
+try:
+    import chromadb
+    from llama_index.core import VectorStoreIndex, Document, StorageContext, Settings
+    from llama_index.vector_stores.chroma import ChromaVectorStore
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+    RAG_AVAILABLE = True
+except ImportError as e:
+    RAG_AVAILABLE = False
+    logger.warning(f"RAG dependencies not installed — semantic routing disabled ({e})")
 
 # Collection name in ChromaDB
 COLLECTION_NAME = "mcp_tools"
@@ -68,6 +77,8 @@ class MCPToolIndexer:
 
     def __init__(self):
         self._index: VectorStoreIndex | None = None
+        if not RAG_AVAILABLE:
+            return
         self._chroma_client = chromadb.Client()  # in-memory
         self._collection = self._chroma_client.get_or_create_collection(
             COLLECTION_NAME
@@ -79,7 +90,6 @@ class MCPToolIndexer:
         Explicitly set local HuggingFace embedding model.
         Avoids requiring OpenAI API key.
         Model downloads ~130MB on first run, cached locally after.
-        Week 3: swap to AWS Bedrock embeddings.
         """
         Settings.embed_model = HuggingFaceEmbedding(
             model_name="BAAI/bge-small-en-v1.5"
@@ -93,6 +103,9 @@ class MCPToolIndexer:
         Build the index from scratch from a list of tool dicts.
         Each dict must have: server_id, name, description, input_schema.
         """
+        if not RAG_AVAILABLE:
+            logger.warning(f"RAG unavailable — skipping index build for {len(tools)} tools")
+            return
         if not tools:
             logger.warning("No tools to index — skipping RAG index build")
             return
@@ -122,6 +135,8 @@ class MCPToolIndexer:
         Rebuild the index with a new tool list.
         Called when MCP servers connect or disconnect.
         """
+        if not RAG_AVAILABLE:
+            return
         # Reset collection and rebuild
         self._chroma_client.delete_collection(COLLECTION_NAME)
         self._collection = self._chroma_client.get_or_create_collection(

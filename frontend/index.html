@@ -304,7 +304,7 @@ footer{
 <!-- HERO -->
 <section class="hero">
   <div class="hero-glow"></div>
-  <div class="hero-pill"><div class="pill-dot"></div>LIVE — api.mcpilot.in</div>
+  <div class="hero-pill"><div class="pill-dot"></div>LIVE — ON-PREM</div>
   <h1 class="hero-h1">
     SOVEREIGN<br>
     <span class="g">AI</span><span class="d"> FOR</span><br>
@@ -316,7 +316,7 @@ footer{
     On-premise. Compliant. Auditable.
   </p>
   <div class="hero-btns">
-    <a href="https://api.mcpilot.in/frontend/classification_dashboard.html" class="btn-p" target="_blank">LIVE DEMO →</a>
+    <a href="/frontend/classification_dashboard.html" class="btn-p" target="_blank">LIVE DEMO →</a>
     <button class="btn-s" onclick="openModal()">REQUEST ACCESS</button>
   </div>
   <div class="hero-dots">
@@ -337,7 +337,7 @@ footer{
       <span class="v-emoji">🛡️</span>
       <div class="v-name">DEFENCE</div>
       <p class="v-desc">Classification-aware AI for Indian Armed Forces. Maritime domain awareness, intelligence fusion and need-to-know enforcement — sovereign, air-gapped, zero foreign dependency.</p>
-      <a href="https://api.mcpilot.in/frontend/maritime_dashboard.html" class="v-link" target="_blank">OPEN DEMO →</a>
+      <a href="/frontend/maritime_dashboard.html" class="v-link" target="_blank">OPEN DEMO →</a>
       <div class="v-compliance">Official Secrets Act · DISC 14 PS 34 · PS 82</div>
     </div>
 
@@ -345,7 +345,7 @@ footer{
       <span class="v-emoji">🏦</span>
       <div class="v-name">BFSI</div>
       <p class="v-desc">Financial document AI with automatic PII redaction. Annual reports, audit files, KYC documents — processed on your infrastructure, never leaving your perimeter.</p>
-      <a href="https://api.mcpilot.in/frontend/bfsi_dashboard.html" class="v-link" target="_blank">OPEN DEMO →</a>
+      <a href="/frontend/bfsi_dashboard.html" class="v-link" target="_blank">OPEN DEMO →</a>
       <div class="v-compliance">RBI Data Localisation · DPDP Act, 2023 · PCI-DSS · PMLA</div>
     </div>
 
@@ -353,7 +353,7 @@ footer{
       <span class="v-emoji">🏥</span>
       <div class="v-name">HEALTHCARE</div>
       <p class="v-desc">Clinical document AI with OCR for scanned Indian hospital PDFs. Discharge summaries, lab reports, insurance claims — ABDM-compliant, patient PII always protected.</p>
-      <a href="https://api.mcpilot.in/frontend/healthcare_dashboard.html" class="v-link" target="_blank">OPEN DEMO →</a>
+      <a href="/frontend/healthcare_dashboard.html" class="v-link" target="_blank">OPEN DEMO →</a>
       <div class="v-compliance">DPDP Act, 2023 · ABDM · IRDAI 2016 · NMC · NABH</div>
     </div>
 
@@ -401,7 +401,7 @@ footer{
   <h2 class="cta-h">DEPLOY<br><span class="g">SOVEREIGN</span><br><span class="d">AI TODAY</span></h2>
   <p class="cta-sub">Defence, BFSI or Healthcare — we deploy in your infrastructure.</p>
   <div class="hero-btns">
-    <a href="https://api.mcpilot.in/frontend/classification_dashboard.html" class="btn-p" target="_blank">LIVE DEMO →</a>
+    <a href="/frontend/classification_dashboard.html" class="btn-p" target="_blank">LIVE DEMO →</a>
     <button class="btn-s" onclick="openModal()">CONTACT US</button>
   </div>
   <div class="cta-email">Partnership enquiries → <a href="mailto:rajkiran@mcpilot.in">rajkiran@mcpilot.in</a></div>
@@ -411,7 +411,7 @@ footer{
 <footer>
   <div class="ft">© 2026 MANYU LOGICS · MCPILOT v0.1.0 · BENGALURU</div>
   <div class="ft">
-    <a href="https://api.mcpilot.in/docs">API DOCS</a> &nbsp;·&nbsp;
+    <a href="/docs">API DOCS</a> &nbsp;·&nbsp;
     <a href="mailto:rajkiran@mcpilot.in">CONTACT</a> &nbsp;·&nbsp;
     <a href="https://github.com/RajkiranVS/MCPilot">GITHUB</a>
   </div>
@@ -480,7 +480,7 @@ async function submitForm(){
   btn.disabled=true;
   st.style.display='none';
   try {
-    const res=await fetch('https://api.mcpilot.in/contact/submit',{
+    const res=await fetch('/contact/submit',{
       method:'POST',
       headers:{'Content-Type':'application/json','Accept':'application/json'},
       body:JSON.stringify({

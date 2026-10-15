@@ -1,5 +1,5 @@
 # MCPilot CI Requirements — minimal, unpinned for pip compatibility
-# Excludes: pywin32, torch, sagemaker, mlflow (not needed for tests)
+# Excludes: pywin32, torch, mlflow (not needed for tests)
 
 # Core framework
 fastapi
@@ -47,15 +47,12 @@ scikit-learn
 numpy<2.0
 
 # MCP
-mcp
+mcp>=1.26,<2
 sse-starlette
 
 # Rate limiting
 slowapi
 
-# AWS minimal
-boto3
-botocore
 
 # Testing
 pytest

@@ -4,11 +4,10 @@ aiofiles
 alembic
 anthropic
 asyncpg
-boto3
 chromadb
 fastapi
 httpx
-mcp
+mcp>=1.26,<2
 numpy
 passlib[bcrypt]
 pdfplumber

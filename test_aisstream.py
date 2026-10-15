@@ -14,7 +14,7 @@ API_KEY = os.environ.get("AISSTREAM_API_KEY", "")
 URL     = "wss://stream.aisstream.io/v0/stream"
 
 async def test():
-    print(f"API key: {'SET (' + API_KEY[:8] + '...)' if API_KEY else 'MISSING'}")
+    print(f"API key: {'SET' if API_KEY else 'MISSING'}")
     print(f"Connecting to {URL}...")
 
     # Test 1: Global bbox (guaranteed traffic)
@@ -33,7 +33,7 @@ async def test():
 
     for label, sub in [("GLOBAL", sub_global), ("INDIA", sub_india)]:
         print(f"\n--- Test: {label} bbox ---")
-        print(f"Subscription: {json.dumps(sub, indent=2)}")
+        print(f"Subscription: {json.dumps({**sub, 'APIKey': '***'}, indent=2)}")
         try:
             async with websockets.connect(URL, ping_interval=20, open_timeout=10) as ws:
                 print("Connected OK")

@@ -162,3 +162,45 @@ def test_scan_list_redacts_strings():
     assert "john@example.com" not in redacted[0]
     assert redacted[1] == "No PHI here"
     assert "123-45-6789" not in redacted[2]
+
+# ── Clinical header fields (Indian hospital formats) — synthetic data ─────────
+CLINICAL_HEADER = """OUTPATIENT RECORD
+Hospital No: KH998877665 Visit No: V55001122334
+Name: MRS SUNITA DEVI PATEL Age/Sex: 52 Yrs/Female
+Doctor Name: DR. ARJUN MEHTA Specialty: ORTHOPAEDICS
+BP Systolic: 150 mmHg BP Diastolic: 94 mmHg Pulse Rate: 112 bt/min
+Drug name: Paracetamol
+DR. ARJUN MEHTA
+MBBS, MS
+Reg. No.: 44321
+ABHA No: 91-1234-5678-9012
+Aadhaar: 4567 8901 2345
+"""
+
+
+def test_redacts_all_caps_patient_and_doctor_names_in_header_fields():
+    r = detect(CLINICAL_HEADER).redacted_text
+    for name in ("SUNITA", "PATEL", "ARJUN", "MEHTA"):
+        assert name not in r
+    assert "Name: [PERSON] Age/Sex: 52 Yrs/Female" in r
+
+
+def test_redacts_hospital_identifiers():
+    r = detect(CLINICAL_HEADER).redacted_text
+    for ident in ("KH998877665", "V55001122334", "44321", "91-1234-5678-9012", "4567 8901 2345"):
+        assert ident not in r
+    assert "Hospital No: [CLINICAL_ID]" in r
+
+
+def test_keeps_clinical_values_and_labels():
+    r = detect(CLINICAL_HEADER).redacted_text
+    assert "Pulse Rate: 112 bt/min" in r          # spaCy used to tag "Pulse Rate" as PERSON
+    assert "BP Systolic: 150 mmHg" in r
+    assert "Specialty: ORTHOPAEDICS" in r
+    assert "Drug name: Paracetamol" in r          # bare "name:" only counts at line start
+    assert "MBBS, MS" in r
+
+
+def test_lowercase_medical_terms_not_redacted_as_person():
+    r = detect("Impression: right brachial plexus injury (possibly neuropraxia only)/advice: NCS/EMG.")
+    assert "neuropraxia" in r.redacted_text

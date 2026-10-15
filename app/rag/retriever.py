@@ -9,7 +9,7 @@ This is the bridge between:
   - What the user/LLM wants to do (intent)
   - Which MCP server + tool to call (routing)
 """
-from llama_index.core import VectorStoreIndex
+
 from app.rag.indexer import tool_indexer
 from app.core.logging import get_logger
 import json

@@ -9,3 +9,6 @@ __pycache__/
 *.sqlite
 .DS_Store
 docker/data/
+logs/
+data/
+docker/nginx/ssl/

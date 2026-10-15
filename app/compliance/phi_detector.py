@@ -25,6 +25,8 @@ from app.compliance.patterns import (
     MILITARY_TIME_REGEX, CALLSIGN_REGEX, AREA_REGEX,
     RANK_NAME_REGEX, SERVICE_NUMBER_REGEX,
     SSN_REGEX, PHONE_REGEX, EMAIL_REGEX, DOB_REGEX, MRN_REGEX, LOCATION_NAMES,
+    CLINICAL_ID_FIELD_REGEX, NAME_FIELD_REGEX, HONORIFIC_NAME_REGEX, AADHAAR_REGEX,
+    CLINICAL_TERMS, COUNTRY_NAMES,
 )
 from app.compliance.cache import pii_cache
 from app.core.logging import get_logger
@@ -80,8 +82,28 @@ def _regex_scan(text: str) -> list[PHIEntity]:
         ))
         covered.add((start, end))
 
+    # Labelled clinical header fields — redact only the value (group 1)
+    for pattern, label in [
+        (CLINICAL_ID_FIELD_REGEX, "CLINICAL_ID"),
+        (NAME_FIELD_REGEX,        "PERSON"),
+        (HONORIFIC_NAME_REGEX,    "PERSON"),
+    ]:
+        for m in pattern.finditer(text):
+            start, end = m.start(1), m.end(1)
+            if start < end and not any(s <= start < e or s < end <= e for s, e in covered):
+                entities.append(PHIEntity(
+                    text=m.group(1),
+                    label=label,
+                    start=start,
+                    end=end,
+                    redact=label in REDACT_LABELS,
+                    label_name=PHI_LABELS.get(label, label),
+                ))
+                covered.add((start, end))
+
     # Priority order: most specific first
     for pattern, label in [
+        (AADHAAR_REGEX,        "CLINICAL_ID"),
         (SERVICE_NUMBER_REGEX, "SERVICE_NO"),
         (RANK_NAME_REGEX,      "RANK_NAME"),
         (COORD_REGEX,          "COORD"),
@@ -157,7 +179,7 @@ def _spacy_scan(masked_text: str, original_text: str,
             continue
         start, end = ent.start_char, ent.end_char
         original_span = original_text[start:end]
-        if ent.label_ == "PERSON" and original_span.lower() in LOCATION_NAMES:
+        if ent.label_ == "PERSON" and original_span.lower().strip() in (LOCATION_NAMES | COUNTRY_NAMES):
             continue
         if ent.label_ == "PERSON" and original_span.lower() in PROWORDS:
             continue
@@ -168,6 +190,10 @@ def _spacy_scan(masked_text: str, original_text: str,
             continue
         if ent.label_ == "PERSON" and len(original_span.strip()) < 4:
             continue
+        if ent.label_ == "PERSON" and set(re.findall(r"[a-z0-9]+", original_span.lower())) & CLINICAL_TERMS:
+            continue
+        if ent.label_ == "PERSON" and not any(c.isupper() for c in original_span):
+            continue   # names are capitalised; all-lowercase spans are terms ("neuropraxia")
         entities.append(PHIEntity(
             text=original_span,
             label=ent.label_,
@@ -204,12 +230,14 @@ def _extend_facility_with_location(text: str, entities: list[PHIEntity]) -> list
                 end = end + after_match.end()
 
         # Check word BEFORE facility (e.g. Ambala → Airbase)
-        preceding = text[:start]
-        before_match = re.search(r'(\w+)\s*$', preceding)
-        if before_match:
-            word = before_match.group(1)
-            if word.lower() in LOCATION_NAMES:
-                start = before_match.start()
+        # Scan backwards instead of regex — r'(\w+)\s*$' backtracks polynomially on untrusted input
+        preceding = text[:start].rstrip()
+        word_start = len(preceding)
+        while word_start > 0 and (preceding[word_start - 1].isalnum() or preceding[word_start - 1] == "_"):
+            word_start -= 1
+        word = preceding[word_start:]
+        if word and word.lower() in LOCATION_NAMES:
+            start = word_start
 
         result.append(PHIEntity(
             text=text[start:end],

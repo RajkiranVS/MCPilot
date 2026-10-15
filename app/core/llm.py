@@ -1,14 +1,12 @@
 """
 MCPilot — LLM Provider Abstraction
-Supports three backends:
-  1. Anthropic Claude API  (cloud)
-  2. AWS Bedrock           (cloud)
-  3. Ollama                (on-premise — no data leaves the facility)
+Supports two backends:
+  1. Ollama                (on-premise — no data leaves the facility)
+  2. Anthropic Claude API  (cloud, optional)
 
 Controlled by LLM_PROVIDER setting in .env:
-  LLM_PROVIDER=anthropic  → Claude API
-  LLM_PROVIDER=bedrock    → AWS Bedrock
   LLM_PROVIDER=ollama     → local Ollama instance
+  LLM_PROVIDER=anthropic  → Claude API
 """
 import httpx
 import json

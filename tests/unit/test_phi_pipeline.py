@@ -105,3 +105,14 @@ def test_scan_output_empty_result():
 def test_scan_output_direction():
     scan = scan_output({"content": [], "is_error": False})
     assert scan.direction == "output"
+
+def test_scan_output_scans_json_results_field_by_field():
+    import json
+    from app.compliance.pipeline import scan_output
+    payload = {"ai_summary": {"text": "Impression: injury (possibly neuropraxia only).\n\nPlan / advice: NCS/EMG."},
+               "notes": ["Seen by Dr. Arjun Mehta today."]}
+    out = scan_output({"content": [{"type": "text", "text": json.dumps(payload)}], "is_error": False})
+    result = json.loads(out.redacted["content"][0]["text"])
+    assert "neuropraxia" in result["ai_summary"]["text"]      # not glued across escaped newlines
+    assert "Mehta" not in result["notes"][0]                  # real names still redacted
+    assert out.phi_detected is True

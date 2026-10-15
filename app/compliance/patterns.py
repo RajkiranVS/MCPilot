@@ -259,10 +259,11 @@ PHI_LABELS = {
     "CALLSIGN":      "Military Callsign",
     "AREA":          "Sector / Grid Area",
     "GRID":          "MGRS Grid Reference",
+    "CLINICAL_ID":   "Patient / Hospital Identifier",
 }
 
 REDACT_LABELS = {
-    "PERSON", "SSN", "MRN", "DOB", "PHONE", "EMAIL",
+    "PERSON", "SSN", "MRN", "DOB", "PHONE", "EMAIL", "CLINICAL_ID",
     "SERVICE_NO", "GRID", "COORD",
     "UNIT_STRENGTH", "FACILITY",
     "BADGE", "RANK_NAME",
@@ -295,3 +296,77 @@ DOB_REGEX = re.compile(
     r'\b(?:dob|d\.o\.b|birthdate|born|birthday)[:\s\-]+\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b',
     re.IGNORECASE
 )
+
+# ── Clinical document header fields (Indian hospital formats) ─────────────────
+# Hospital records print identity in labelled header fields, often in ALL CAPS
+# ("Name: MR A B C Age/Sex: 36 Yrs/Male"), which spaCy NER misses. These
+# patterns redact the field VALUE (capture group 1) and keep the label.
+
+# Labels that start the next header field on the same line — a value stops there.
+_NEXT_FIELD = (
+    r'(?:age\s*/\s*sex|age|sex|gender|dob|date|time|visit\s*no|hospital\s*no|uhid|mrn|'
+    r'ip\s*no|op\s*no|bed(?:\s*no)?|ward|unit|speciality|specialty|department|dept|'
+    r'doctor(?:\s*name)?|consultant|ref(?:\.|erred)?\s*by|address|phone|mobile|contact|'
+    r'abha(?:\s*(?:no|number|id))?|aadhaa?r(?:\s*no)?|reg(?:\.|istration)?\s*no|patient\s*id)'
+)
+_VALUE_END = rf'(?=[ \t]+{_NEXT_FIELD}\.?[ \t]*[:\-]|[ \t]*(?:\r?\n|$)|[ \t]{{2,}}|[ \t]*[,;|])'
+
+CLINICAL_ID_FIELD_REGEX = re.compile(
+    r'\b(?:hospital\s*no|uhid|urn|mrn|mrd?\s*no|i\.?p\.?d?\s*no|o\.?p\.?d?\s*no|visit\s*no|'
+    r'reg(?:\.|istration)?\s*no|patient\s*id|case\s*no|bill\s*no|policy\s*no|claim\s*no|'
+    r'member\s*id|card\s*no|abha(?:\s*(?:no|number|id|address))?|aadhaa?r(?:\s*(?:no|number))?)'
+    r'(?![A-Za-z0-9])\.?[ \t]*[:\-#]?[ \t]*'   # label must end here: "MRN1234567" is left to MRN_REGEX
+    r'([A-Za-z0-9@][A-Za-z0-9@./\-]*\d[A-Za-z0-9@./\-]*)',
+    re.IGNORECASE
+)
+
+# Bare "Name:" only counts at the start of a line or a column — not "Drug name:".
+NAME_FIELD_REGEX = re.compile(
+    r'(?:\b(?:patient(?:\'?s)?\s*name|pt\.?\s*name|name\s+of\s+(?:the\s+)?patient|doctor\s*name|'
+    r'consultant(?:\s*name)?|treating\s+doctor|ref(?:\.|erred)?\s*by|'
+    r'(?:father|husband|mother|guardian|spouse)(?:\'?s)?\s*name)'
+    r'|(?:^|(?<=\t)|(?<=\|)|(?<=  ))name)'
+    r'[ \t]*[:\-][ \t]*'
+    r'((?:(?:mr|mrs|ms|miss|master|dr|prof|shri|smt|kum|baby|b/o)\.?[ \t]+)?'
+    r'[A-Za-z][A-Za-z.\'\-]*(?:[ \t][A-Za-z][A-Za-z.\'\-]*){0,6}?)' + _VALUE_END,
+    re.IGNORECASE | re.MULTILINE
+)
+
+# Honorific + capitalised name, e.g. a signature block "DR. A B" or "seen by Dr. X".
+_NOT_NAME = (r'(?!(?i:mbbs|md|ms|mrcp|frcp|frcs|dnb|dm|mch|dch|dgo|bds|mds|phd|'
+             r'specialty|speciality|department|reg)\b)')
+HONORIFIC_NAME_REGEX = re.compile(
+    r'\b(?:(?i:dr|mr|mrs|prof|shri|smt|kum)\.?|(?i:ms|miss)\.)[ \t]+'
+    rf'({_NOT_NAME}[A-Z][A-Za-z\'\-]+(?:[ \t]+{_NOT_NAME}[A-Z][A-Za-z\'\-]+){{0,3}})'
+)
+
+# Aadhaar printed in 4-4-4 groups
+AADHAAR_REGEX = re.compile(r'\b[2-9]\d{3}[ \-]\d{4}[ \-]\d{4}\b')
+
+# Countries / financial jurisdictions spaCy sometimes tags as PERSON ("Mauritius").
+# Never redacted as a person — geography is material to BFSI review.
+COUNTRY_NAMES = {
+    "india", "mauritius", "singapore", "netherlands", "cyprus", "japan", "united states",
+    "usa", "united kingdom", "uk", "uae", "united arab emirates", "dubai", "germany",
+    "france", "switzerland", "luxembourg", "ireland", "hong kong", "china", "korea",
+    "south korea", "north korea", "iran", "myanmar", "cayman islands", "cayman",
+    "british virgin islands", "bvi", "panama", "seychelles", "bermuda", "jersey",
+    "guernsey", "isle of man", "bahamas", "canada", "australia", "russia", "saudi arabia",
+    "qatar", "oman", "kuwait", "bahrain", "israel", "pakistan", "bangladesh", "sri lanka",
+    "nepal", "bhutan", "maldives", "afghanistan", "malaysia", "indonesia", "thailand",
+    "vietnam", "philippines", "taiwan", "brazil", "mexico", "south africa", "nigeria",
+    "kenya", "italy", "spain", "sweden", "norway", "denmark", "finland", "belgium", "austria",
+}
+
+# Clinical vocabulary spaCy sometimes tags as PERSON ("Pulse Rate", "Fall Risk").
+# A PERSON span containing any of these words is dropped.
+CLINICAL_TERMS = {
+    "pulse", "rate", "systolic", "diastolic", "respiration", "respiratory",
+    "temperature", "temp", "weight", "height", "pressure", "arterial", "bmi",
+    "spo2", "saturation", "scale", "risk", "pain", "fall", "notes", "opd", "ipd",
+    "examination", "diagnosis", "impression", "advice", "history", "complaint",
+    "complaints", "findings", "investigation", "investigations", "specialty",
+    "speciality", "department", "neurology", "cardiology", "orthopaedics",
+    "orthopedics", "medicine", "surgery", "record", "outpatient", "inpatient",
+    "discharge", "summary", "admission", "ward", "bed", "visit", "hospital",
+}
