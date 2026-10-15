@@ -41,7 +41,6 @@ async def submit_contact(payload: ContactRequest, request: Request) -> dict:
 @router.get("/submissions")
 async def list_submissions(request: Request) -> dict:
     scopes = getattr(request.state, "scopes", [])
-    print(f"DEBUG scopes: {scopes}")
     if "admin" not in scopes:
         raise HTTPException(status_code=403, detail="Admin scope required")
     try:
@@ -56,4 +55,4 @@ async def list_submissions(request: Request) -> dict:
         return {"total": len(submissions), "submissions": submissions}
     except Exception as e:
         logger.error(f"S3 list failed: {e}")
-        return {"total": 0, "submissions": [], "error": str(e)}
+        return {"total": 0, "submissions": [], "error": "Failed to load submissions"}

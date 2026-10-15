@@ -3,8 +3,10 @@ MCPilot — Centralised Settings
 All config loaded from .env — never hardcoded.
 """
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_INSECURE_SECRET_KEY = "change-me-before-production"
 
 
 class Settings(BaseSettings):
@@ -15,7 +17,8 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # Auth (BUILD-002)
-    secret_key: str = "change-me-before-production"
+    secret_key: str = _INSECURE_SECRET_KEY
+    admin_api_key: str = ""   # grants admin scope; leave empty to disable
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
@@ -52,6 +55,13 @@ class Settings(BaseSettings):
     enable_pseudonymisation:     bool = True
     data_controller_name:        str = "MCPilot Technologies"
     data_controller_contact:     str = "privacy@mcpilot.in"
+
+    @model_validator(mode="after")
+    def _reject_insecure_secret_key(self) -> "Settings":
+        # Default key is public in this repo — anyone could forge admin JWTs with it.
+        if self.environment not in ("development", "test") and self.secret_key == _INSECURE_SECRET_KEY:
+            raise ValueError("SECRET_KEY must be set to a strong random value outside development/test")
+        return self
 
 @lru_cache()
 def get_settings() -> Settings:

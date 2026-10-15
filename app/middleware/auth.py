@@ -40,11 +40,6 @@ _API_KEY_STORE: dict[str, dict] = {
         "tenant_id": "dev-tenant",
         "scopes":    ["gateway:invoke"],
     },
-    "mcpilot-admin-key-001": {
-        "client_id": "admin-client",
-        "tenant_id": "dev-tenant",
-        "scopes":    ["gateway:invoke", "admin"],
-    },
     "mcpilot-navy-ops-001": {
         "client_id": "navy-ops-client",
         "tenant_id": "navy-ops",
@@ -77,6 +72,14 @@ _API_KEY_STORE: dict[str, dict] = {
         "scopes":    ["gateway:invoke"],
     },
 }
+
+# Admin key is never hardcoded — it must come from the ADMIN_API_KEY env var.
+if settings.admin_api_key:
+    _API_KEY_STORE[settings.admin_api_key] = {
+        "client_id": "admin-client",
+        "tenant_id": "dev-tenant",
+        "scopes":    ["gateway:invoke", "admin"],
+    }
 
 
 def _unauthorized(detail: str) -> JSONResponse:
@@ -148,10 +151,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.tenant_id  = key_data["tenant_id"]
             request.state.scopes     = key_data["scopes"]
             request.state.auth_scheme = "api_key"
-            logger.debug(
-                f"API key auth OK | client={key_data['client_id']} "
-                f"tenant={key_data['tenant_id']} path={path}"
-            )
+            logger.debug(f"API key auth OK | path={path}")
 
 
         else:

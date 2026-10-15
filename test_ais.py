@@ -29,7 +29,7 @@ if not API_KEY:
     print("ERROR: AISSTREAM_API_KEY not set in .env")
     exit(1)
 
-print(f"API Key: {API_KEY[:8]}...")
+print("API Key: set")
 print()
 
 # ── Bounding boxes to test ────────────────────────────────────────────────────

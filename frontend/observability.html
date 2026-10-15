@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MCPilot — Observability</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" integrity="sha512-SIMGYRUjwY8+gKg7nn9EItdD8LCADSDfJNutF9TPrvEo86sQmFMh6MyralfIyhADlajSxqc7G0gs7+MwWF/ogQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Courier New', monospace; background: #0a0f1e; color: #e8d5a3; min-height: 100vh; }
@@ -128,8 +128,8 @@
 </div>
 
 <script>
-  const API_BASE = 'http://localhost:8000';
-  const WS_BASE  = 'ws://localhost:8000';
+  const API_BASE = window.location.origin;  // same server that serves this page
+  const WS_BASE  = API_BASE.replace(/^http/, 'ws');  // ws:// or wss:// to match the page
   const API_KEY  = 'mcpilot-dev-key-001';
 
   setInterval(() => {
@@ -207,6 +207,11 @@
     latencyChart.update('none');
   }
 
+  // Escape untrusted text (user queries, API data) before HTML insertion
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   function updateEventFeed(events) {
     const feed = document.getElementById('eventFeed');
     feed.innerHTML = '';
@@ -218,9 +223,9 @@
       const badgeTxt = e.pii_detected ? 'PII' :
                        e.status === 'error' ? 'ERR' : 'OK';
       row.innerHTML = `
-        <div class="event-time">${e.timestamp.slice(11,19)}</div>
-        <div class="event-name">${e.server_id}.${e.tool_name}</div>
-        <div class="event-lat">${Math.round(e.latency_ms)}ms</div>
+        <div class="event-time">${esc(String(e.timestamp).slice(11,19))}</div>
+        <div class="event-name">${esc(e.server_id)}.${esc(e.tool_name)}</div>
+        <div class="event-lat">${Math.round(Number(e.latency_ms) || 0)}ms</div>
         <div class="badge ${badgeCls}">${badgeTxt}</div>
       `;
       feed.appendChild(row);
@@ -237,7 +242,7 @@
       div.innerHTML = data.servers.map(s => `
         <div class="server-row">
           <div class="dot ${s.connected ? 'dot-on' : 'dot-off'}"></div>
-          <div style="color:#c8b88a;flex:1">${s.server_id}</div>
+          <div style="color:#c8b88a;flex:1">${esc(s.server_id)}</div>
           <div style="color:#3a6aaa;font-size:11px">${s.connected ? 'online' : 'offline'}</div>
         </div>
       `).join('');
@@ -254,7 +259,7 @@
       div.innerHTML = data.records.map(r => `
         <div class="audit-row">
           <div class="audit-time">${new Date(r.created_at).toLocaleTimeString('en-GB')}</div>
-          <div class="audit-msg">${r.server_id}.${r.tool_name} | hash:${r.record_hash}</div>
+          <div class="audit-msg">${esc(r.server_id)}.${esc(r.tool_name)} | hash:${esc(r.record_hash)}</div>
           <div class="badge ${r.pii_detected ? 'badge-pii' : 'badge-ok'}">${r.pii_detected ? 'PII' : 'OK'}</div>
         </div>
       `).join('') || '<div class="audit-row"><div class="audit-msg">No records yet</div></div>';
