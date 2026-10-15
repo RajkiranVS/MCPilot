@@ -28,10 +28,8 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
 
-    # AWS (Week 3)
-    aws_region: str = "us-east-1"
-    aws_sagemaker_phi_endpoint: str = ""
-    aws_bedrock_model_id: str = "anthropic.claude-sonnet-4-20250514-v1:0"
+    # Contact form submissions — stored on local disk (on-prem, no cloud storage)
+    contact_submissions_dir: str = "data/contact_submissions"
 
     # ── LLM Provider ──────────────────────────────────────────────────────────
     llm_provider:  str = "ollama"

@@ -1,7 +1,7 @@
 """
 MCPilot — Health Router
 Liveness + readiness endpoints.
-Used by Docker health checks and AWS ECS in Week 4.
+Used by Docker health checks.
 """
 import time
 from fastapi import APIRouter, Depends
@@ -45,6 +45,5 @@ async def readiness() -> ReadinessResponse:
             "api": "ok",
             "database": "pending",      # BUILD-007
             "vector_store": "pending",  # BUILD-005
-            "sagemaker": "pending",     # BUILD-009
         }
     )

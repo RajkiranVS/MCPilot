@@ -4,7 +4,6 @@ aiofiles
 alembic
 anthropic
 asyncpg
-boto3
 chromadb
 fastapi
 httpx

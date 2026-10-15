@@ -306,7 +306,7 @@
 
 <script>
 const API_KEY = 'mcpilot-hospital-001';
-const BASE    = 'https://api.mcpilot.in';
+const BASE    = window.location.origin;  // same server that serves this page (on-prem or prod)
 let selectedFile = null;
 let selectedTool = 'summarise_clinical_document';
 
